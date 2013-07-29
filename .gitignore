@@ -2,3 +2,4 @@
 *.swo
 .Rproj.user
 *.Rproj
+data/
