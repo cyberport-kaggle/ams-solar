@@ -1,11 +1,13 @@
+source("Michael/02 func.R")
+
+# take a look at the solar readings
 readings = read.csv("data/train.csv")
 str(readings)
 summary(readings)
 
 plot(readings$Date, readings$ACME)
 
-
-
+# get familair with the NetCDF data format
 library(ncdf)
 nc = open.ncdf("data/train/apcp_sfc_latlon_subset_19940101_20071231.nc")
 print(nc)
@@ -13,6 +15,7 @@ apcp = get.var.ncdf(nc, "Total_precipitation", start=c(1, 1, 1, 1, 1), count=c(1
 time = get.var.ncdf(nc, "intTime")
 b = get.var.ncdf(nc, "intValidTime")
 
+# variables that are forecasted by GEFS 
 varnames = c("apcp_sfc",
              "dlwrf_sfc",
              "dswrf_sfc",
@@ -53,15 +56,25 @@ varnames = c("apcp_sfc",
 library(doMC)
 registerDoMC(cores = 4)
 
+# train a toy model for the MAYR station.  I picked MAYR it was the station located closest to a forecast grid point
+# get data into a dataframe format.  each row is different time and each column represents difference ensembles, forecast
+# time and variables 
 MAYR = lapply(varnames, getVariable, lon = -99, lat = 37)
 MAYR = scale.default(do.call(cbind, MAYR))
 MAYR = as.data.frame(MAYR)
 
+# load the response variable and add it to the MAYR data frame 
 train = read.csv("data/train.csv")
 MAYR$y = train$MAYR
 
+# fit a linear model to MAYR 
 fit = lm(y ~ ., MAYR)
 
-fitControl = trainControl(method="cv", number=5)
-svmFit = train(y ~ ., data=MAYR, method="rf", 
-               trControl=fitControl, tuneLength=5)
+# linear model seems to be a pretty good fit to the data. Rsquared of 0.86 
+plot(fit$fitted.values, MAYR$y)
+summary(fit)
+
+# tried to train a SVM and RandomForest.  Took forever, never completed.
+# fitControl = trainControl(method="cv", number=5)
+# svmFit = train(y ~ ., data=MAYR, method="rf", 
+#                trControl=fitControl, tuneLength=5)
