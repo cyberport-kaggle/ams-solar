@@ -179,7 +179,7 @@ getAllVarData <- function(nc, lonIdx, latIdx) {
         }
     }
     dframe <- join_all(tmp, by='date')
-    if (ncol(dframe) != 56) {
+    if (sum(colnames(dframe) != 'date') != 55) {
         warning(paste("Flattened data does not contain 55 columns in file ", nc$filename, sep=""))
     }
     return(dframe)
@@ -190,36 +190,44 @@ combineHours <- function(df, method="mean") {
     #
     # For example, df will have column names with suffixes 1111, 1112, 1113 ... 1121, 1122... etc.
     # Forecast hour is the third number, so this function will combine columns:
-    # 1111, 1121, 1131, 1141, 1151 to be 1101, and then the same with 1211, 1221, etc.
+    # 1111, 1121, 1131, 1141, 1151 to be 1101, and then the same with 1112, 1122, etc.
+    #
+    # Since getAllVarData has fixed lat and lon, we actually only need to flatten for the ensemble dimension
 
     if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
         stop("Method is not valid")
     }
-}
 
-combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
-    # Combines the readings across each forecast hour in a given day using a particular method
-    if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
-        stop("Method is not valid")
+    # Get the suffixes of each column name
+    # Split first by _, then split by .
+    splitNames <- strsplit(colnames(df), '_')
+    suffixes <- unlist(lapply(splitNames, function(x) {return(x[2])}))
+    # This gives a list of numeric vectors, which indicate the dimensions of lat, lon, hour, and ensemble for each column of the df
+    # Also element 1 of the list is NA since that was the date column
+    idx <- strsplit(suffixes, '\\.')
+
+    # Additionally, infer a few things about this data.frame from the names
+    varName <- splitNames[[2]][1]
+    lonIdx <- substr(splitNames[[2]][2], 1, 1)
+    latIdx <- substr(splitNames[[2]][2], 3, 3)
+
+    ens <- as.numeric(unlist(lapply(idx, function(x) {x[4]})))
+    uniqueEns <- unique(ens[!is.na(ens)])
+    res <- data.frame(date=df$date)
+    for (e in uniqueEns) {
+        # The columns to merge
+        colIdx <- which(ens == e)
+        newCol <- apply(df[,colIdx], 1, get(method))
+        # add the new column to the res data frame
+        newName <- paste(varName, '_', paste(lonIdx, latIdx, 0, e, sep="."), sep="")
+        res[,newName] <- newCol
     }
-    varName <- getVarName(nc)
-    # 0 indicates that it's combined across all hours
-    shortVarName <- paste(shortNames[[varName]], '_', latIdx, lonIdx, '0', ensIdx, sep="")
-    # should be seq(12, 24, 3), but we're paranoid
-    hours <- getDimensions(nc)$fhour
-    # Build a list with all of the data at each hour
-    tmp <- list()
-    for (i in 1:length(hours)) {
-        tmp[[i]] <- getVarData(nc, lonIdx, latIdx, i, ensIdx)
-    }
-    dframe <- join_all(tmp, by='date')
-    dates <- dframe$date
-    values <- apply(dframe[,-1], 1, get(method))
-    res <- data.frame(date=dates)
-    res[shortVarName] <- values
     return(res)
 }
 
+combineEns <- function(df, method='mean') {
+    # Basically exactly the same as combineHours, but for combining across ensembles
+}
 
 ##########
 # Load data
