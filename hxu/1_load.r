@@ -152,7 +152,7 @@ getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
     # @ensIdx: Index of the ensemble dimension
     varName <- getVarName(nc)
     # append indexes to the name
-    shortVarName <- paste(shortNames[[varName]], '_', latIdx, lonIdx, fhourIdx, ensIdx, sep="")
+    shortVarName <- paste(shortNames[[varName]], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
     # build inputs to ncvar_get
     startIdx <- c(lonIdx, latIdx, fhourIdx, ensIdx, 1)
     cnt <- c(1, 1, 1, 1, -1) # -1 on intTime to get all values
@@ -162,6 +162,39 @@ getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
     res <- data.frame(date=dates)
     res[shortVarName] <- values
     return(res)
+}
+
+getAllVarData <- function(nc, lonIdx, latIdx) {
+    # For a given GEFS location and variable file, get and collapse all data
+    # Returns a dataframe where columns are the variables at different combinations of
+    # ensemble and forecast hour
+    # so should have a total of 5 * 11 = 55 columns
+    dims <- getDimensions(nc)
+    tmp <- list()
+    k <- 1
+    for (i in 1:length(dims$fhour)) {
+        for (j in 1:length(dims$ens)) {
+            tmp[[k]] <- getVarData(nc, lonIdx, latIdx, i, j)
+            k <- k + 1
+        }
+    }
+    dframe <- join_all(tmp, by='date')
+    if (ncol(dframe) != 56) {
+        warning(paste("Flattened data does not contain 55 columns in file ", nc$filename, sep=""))
+    }
+    return(dframe)
+}
+
+combineHours <- function(df, method="mean") {
+    # given a df that is a result of getAllVarData, reduces dimension of hours to 1
+    #
+    # For example, df will have column names with suffixes 1111, 1112, 1113 ... 1121, 1122... etc.
+    # Forecast hour is the third number, so this function will combine columns:
+    # 1111, 1121, 1131, 1141, 1151 to be 1101, and then the same with 1211, 1221, etc.
+
+    if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
+        stop("Method is not valid")
+    }
 }
 
 combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
@@ -176,7 +209,7 @@ combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
     hours <- getDimensions(nc)$fhour
     # Build a list with all of the data at each hour
     tmp <- list()
-    for (i in 1:length(dims$fhour)) {
+    for (i in 1:length(hours)) {
         tmp[[i]] <- getVarData(nc, lonIdx, latIdx, i, ensIdx)
     }
     dframe <- join_all(tmp, by='date')
