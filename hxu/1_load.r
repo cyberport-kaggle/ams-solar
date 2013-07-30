@@ -166,7 +166,7 @@ getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
 
 combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
     # Combines the readings across each forecast hour in a given day using a particular method
-    if (!(method %in% c('mean', 'sum'))) {
+    if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
         stop("Method is not valid")
     }
     varName <- getVarName(nc)
@@ -181,12 +181,7 @@ combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
     }
     dframe <- join_all(tmp, by='date')
     dates <- dframe$date
-    if (method == 'mean') {
-        values <- apply(dframe[,-1], 1, mean)
-    } else if(method == 'sum') {
-        values <- apply(dframe[,-1], 1, sum)
-    }
-    
+    values <- apply(dframe[,-1], 1, get(method))
     res <- data.frame(date=dates)
     res[shortVarName] <- values
     return(res)
@@ -199,8 +194,8 @@ combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
 
 # Libraries ncdf4 and RNetCDF have basically the same functionality
 library(ncdf4)
-nc <- nc_open(paste(dataFolder, trainFolder, trainFiles[1], sep=''))
 
-# When extracting data from the ncdf file, it will be necessary to utilize the offsets
-# for each dimension, otherwise it'll read the whole dataset out
-# but this will require some manual determination of which values we want
+# For each Mesonet location:
+## Find the four nearest GEFS Locations
+## For each variable
+### For each GEFS location
