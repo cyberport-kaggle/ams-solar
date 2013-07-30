@@ -3,6 +3,9 @@
 # Config
 ##########
 
+library(plyr)
+library(reshape)
+
 dataFolder <- '../data/'
 testFolder <- 'test/' # Path to test files.  Set to '' if in root dataFolder
 trainFolder <- 'train/' # Path to train files
@@ -14,6 +17,7 @@ trainFolder <- 'train/' # Path to train files
 stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''))
 stationNames <- stationInfo$stid
 knownDims <- c('lat', 'lon', 'ens', 'fhour', 'intValidTime', 'intTime', 'time')
+trainData <- read.csv(paste(dataFolder, 'train.csv', sep=''))
 
 # Names of the netCDF files that contain the data
 # The following are all of the variables provided
@@ -38,6 +42,44 @@ testFiles <- read.csv('test_filenames.txt', header=FALSE)[[1]]
 
 # In R, each of the factors should have dimensions of (lon, lat, fhour, ens, time)
 # This is reversed from netCDF, and what the python code will read
+
+
+# Create a hash table of full variable names to shorter names
+# For readability
+library(hash)
+varNames <- c("Total_precipitation",
+              "Downward_Long-Wave_Rad_Flux",
+              "Downward_Short-Wave_Rad_Flux",
+              "Pressure",
+              "Precipitable_water",
+              "Specific_humidity_height_above_ground",
+              "Total_cloud_cover",
+              "Total_Column-Integrated_Condensate",
+              "Maximum_temperature",
+              "Minimum_temperature",
+              "Temperature_height_above_ground",
+              "Temperature_surface",
+              "Upward_Long-Wave_Rad_Flux_surface",
+              "Upward_Long-Wave_Rad_Flux",
+              "Upward_Short-Wave_Rad_Flux")
+shortVarNames <- c('totalPrecip',
+                   'dwnLWFlux',
+                   'dwnSWFlux',
+                   'pressure',
+                   'precipWater',
+                   'specHumid',
+                   'cloud',
+                   'totalCondens',
+                   'maxTemp',
+                   'minTemp',
+                   'temp2m',
+                   'tempSurf',
+                   'upLWFluxSurf',
+                   'upLWFlux',
+                   'upSWFlux')
+names(varNames) <- shortVarNames
+longNames <- hash(varNames)
+shortNames <- invert(longNames)
 
 getDimensions <- function(nc) {
     # Returns a list of the dimensions and their values from the netcdf file.
@@ -87,8 +129,67 @@ getPoints <- function(lat, lon, dims, n=1) {
     }
     latIdx <- which(abs(lats - lat) <= maxDist)
     lonIdx <- which(abs(lons - lon) <= maxDist)
-    cat(paste("Using GEFS points at lats: ", paste(lats[latIdx], collapse=" "), " and lons: ", paste(lons[lonIdx], collapse=" "), sep=""))
-    return(list(latStart=latIdx[1], latCnt=n*2, lonStart=lonIdx[1], lonCnt=n*2))
+    if (length(latIdx) != (n * 2) && length(lonIdx) != (n * 2)) {
+        warning("Something is wrong, didn't find the right number of coordinates")
+        cat(paste("Lat: ", lat, " Lon: ", lon, sep=""))
+        cat(paste("in Lats: ", lats, " Lons: ", lons, sep=""))
+        return(NULL)
+    } else {
+        cat(paste("Using GEFS points at lats: ", paste(lats[latIdx], collapse=" "), " and lons: ", paste(lons[lonIdx], collapse=" "), sep=""))
+        return(list(latStart=latIdx[1], latCnt=n*2, lonStart=lonIdx[1], lonCnt=n*2))
+    }
+}
+
+getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
+    # Returns a data frame with one column.  Rows are dates, and the single column
+    # is the variable data contained in the NetCDF file provided.  All other dimensions
+    # must be specified
+    # Parameters:
+    # @nc: The open netCDF file
+    # @latIdx: Index of the latitude dimension
+    # @lonIdx: Index of the longitude dimension
+    # @fhourIdx: Index of the forecast hour dimension
+    # @ensIdx: Index of the ensemble dimension
+    varName <- getVarName(nc)
+    # append indexes to the name
+    shortVarName <- paste(shortNames[[varName]], '_', latIdx, lonIdx, fhourIdx, ensIdx, sep="")
+    # build inputs to ncvar_get
+    startIdx <- c(lonIdx, latIdx, fhourIdx, ensIdx, 1)
+    cnt <- c(1, 1, 1, 1, -1) # -1 on intTime to get all values
+    values <- ncvar_get(nc, varName, start=startIdx, count=cnt)
+    dates <- ncvar_get(nc, 'intTime')
+    # build result data frame
+    res <- data.frame(date=dates)
+    res[shortVarName] <- values
+    return(res)
+}
+
+combineHours <- function(nc, lonIdx, latIdx, ensIdx, method="mean") {
+    # Combines the readings across each forecast hour in a given day using a particular method
+    if (!(method %in% c('mean', 'sum'))) {
+        stop("Method is not valid")
+    }
+    varName <- getVarName(nc)
+    # 0 indicates that it's combined across all hours
+    shortVarName <- paste(shortNames[[varName]], '_', latIdx, lonIdx, '0', ensIdx, sep="")
+    # should be seq(12, 24, 3), but we're paranoid
+    hours <- getDimensions(nc)$fhour
+    # Build a list with all of the data at each hour
+    tmp <- list()
+    for (i in 1:length(dims$fhour)) {
+        tmp[[i]] <- getVarData(nc, lonIdx, latIdx, i, ensIdx)
+    }
+    dframe <- join_all(tmp, by='date')
+    dates <- dframe$date
+    if (method == 'mean') {
+        values <- apply(dframe[,-1], 1, mean)
+    } else if(method == 'sum') {
+        values <- apply(dframe[,-1], 1, sum)
+    }
+    
+    res <- data.frame(date=dates)
+    res[shortVarName] <- values
+    return(res)
 }
 
 
@@ -96,14 +197,9 @@ getPoints <- function(lat, lon, dims, n=1) {
 # Load data
 ##########
 
-# Looks like these two libraries are basically the same.  I think ncdf4 might be a bit more user friendly?
-# But neither of them really gives you the ability to introspect into the ncdf file, you have to just know it
-# from the descriptive information that is printed out.
+# Libraries ncdf4 and RNetCDF have basically the same functionality
 library(ncdf4)
 nc <- nc_open(paste(dataFolder, trainFolder, trainFiles[1], sep=''))
-
-library(RNetCDF)
-nc <- open.nc(paste(dataFolder, trainFolder, trainFiles[1], sep=''))
 
 # When extracting data from the ncdf file, it will be necessary to utilize the offsets
 # for each dimension, otherwise it'll read the whole dataset out
