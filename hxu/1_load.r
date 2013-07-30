@@ -109,7 +109,7 @@ getVarName <- function(nc) {
     }
 }
 
-getPoints <- function(lat, lon, dims, n=1) {
+getPoints <- function(lon, lat, dims, n=1) {
     # Given a latitude and longitude, find the n nearest points in the GEFS grid 
     # in each direction
     # Parameters:
@@ -135,7 +135,7 @@ getPoints <- function(lat, lon, dims, n=1) {
         cat(paste("in Lats: ", lats, " Lons: ", lons, sep=""))
         return(NULL)
     } else {
-        cat(paste("Using GEFS points at lats: ", paste(lats[latIdx], collapse=" "), " and lons: ", paste(lons[lonIdx], collapse=" "), sep=""))
+        cat("Using GEFS points at lats: ", paste(lats[latIdx], collapse=" "), " and lons: ", paste(lons[lonIdx], collapse=" "), '\n', sep="")
         return(list(latStart=latIdx[1], latCnt=n*2, lonStart=lonIdx[1], lonCnt=n*2))
     }
 }
@@ -227,6 +227,36 @@ combineHours <- function(df, method="mean") {
 
 combineEns <- function(df, method='mean') {
     # Basically exactly the same as combineHours, but for combining across ensembles
+    if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
+        stop("Method is not valid")
+    }
+
+    # Get the suffixes of each column name
+    # Split first by _, then split by .
+    splitNames <- strsplit(colnames(df), '_')
+    suffixes <- unlist(lapply(splitNames, function(x) {return(x[2])}))
+    # This gives a list of numeric vectors, which indicate the dimensions of lat, lon, hour, and ensemble for each column of the df
+    # Also element 1 of the list is NA since that was the date column
+    idx <- strsplit(suffixes, '\\.')
+
+    # Additionally, infer a few things about this data.frame from the names
+    varName <- splitNames[[2]][1]
+    lonIdx <- substr(splitNames[[2]][2], 1, 1)
+    latIdx <- substr(splitNames[[2]][2], 3, 3)
+
+    hrs <- as.numeric(unlist(lapply(idx, function(x) {x[3]})))
+    uniqueHrs <- unique(hrs[!is.na(hrs)])
+    res <- data.frame(date=df$date)
+    for (hr in uniqueHrs) {
+        # The columns to merge
+        colIdx <- which(hrs == hr)
+        newCol <- apply(df[,colIdx], 1, get(method))
+        # add the new column to the res data frame
+        newName <- paste(varName, '_', paste(lonIdx, latIdx, hr, 0, sep="."), sep="")
+        res[,newName] <- newCol
+    }
+    return(res)
+
 }
 
 ##########
@@ -236,7 +266,46 @@ combineEns <- function(df, method='mean') {
 # Libraries ncdf4 and RNetCDF have basically the same functionality
 library(ncdf4)
 
+buildDfs <- function(dfPath = 'cleaned/') {
 # For each Mesonet location:
 ## Find the four nearest GEFS Locations
-## For each variable
+## For each variable we want to include in the model
 ### For each GEFS location
+#### Average over ensembles
+#### average over prediction hours
+#### Results in one column, add to dataset
+## write df to folder
+
+    # Read in base dimension information
+    nc <- nc_open(paste0(dataFolder, trainFolder, trainFiles[1]))
+    dims <- getDimensions(nc)
+    nc_close(nc)
+
+    for (stn in stationNames) {
+        cat('Cleaning data for station', stn, '\n')
+        stnInfo <- stationInfo[stationInfo$stid == stn,]
+        # get four closest GEFS locations
+        gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
+        latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
+        lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
+        allData <- list()
+        i <- 1
+        for (f in trainFiles) {
+            cat('Opening ', f, '\n', sep='')
+            nc <- nc_open(paste0(dataFolder, trainFolder, f))
+            for (lat in latIdx) {
+                for (lon in lonIdx) {
+                    dtmp <- getAllVarData(nc, lon, lat)
+                    # flatten ensembles
+                    allData[[i]] <- combineEns(dtmp)
+                    i <- i+1
+                }
+            }
+            nc_close(nc)
+        }
+        allData <- join_all(allData, by="date")
+        cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
+        fn <- paste0(dataFolder, dfPath, stn, '.csv')
+        write.csv(allData, fn)
+    }
+}
