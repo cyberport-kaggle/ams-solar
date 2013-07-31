@@ -1,4 +1,7 @@
-getVariable <- function(lat, lon, var, path = "data/train"){
+library(ncdf)
+library(fields)
+
+getVariable <- function(lon, lat, var, path = "data/train"){
   
   filename = Sys.glob(file.path(path, paste0(var, "*", collapse="")))
   nc = open.ncdf(filename)
@@ -22,11 +25,12 @@ getVariable <- function(lat, lon, var, path = "data/train"){
   
   lon = lon + 107
   lat = lat - 30
+  time = get.var.ncdf(nc, "intTime")
   
   data = get.var.ncdf(nc, varname, start = c(lon, lat, 1, 1, 1), count = c(1, 1, -1, -1, -1))
   data = aperm(data, c(3,2,1))
-  dim(data) = c(5113, 55)
-  rownames(data) = get.var.ncdf(nc, "intTime")
+  dim(data) = c(length(time), 55)
+  rownames(data) = time
   
   return(data)
 }
@@ -36,4 +40,14 @@ getVariableName <- function(var){
   nc = open.ncdf(filename)
   
   print(nc)
+}
+
+closestGEFS <- function(station){
+  stationlist = read.csv("data/station_info.csv")
+  stationcoords = stationlist[stationlist$stid == station, ]
+  
+  GEFS = expand.grid(lon = -106:-91, lat = 31:39)
+  closestIDX = order(rdist.earth(stationcoords[,3:2], GEFS))[1:4]
+  
+  return(GEFS[closestIDX,])
 }

@@ -53,15 +53,34 @@ varnames = c("apcp_sfc",
 # longitude -106 -105 -104 -103 -102 -101 -100 -99  -98  -97  -96  -95  -94  -93  -92  -91
 # latitude 31 32 33 34 35 36 37 38 39
 
+station = read.csv("data/station_info.csv")
+rdist.earth(station[1,3:2], c(-106,31))
+
+
+library(caret)
 library(doMC)
 registerDoMC(cores = 4)
 
 # train a toy model for the MAYR station.  I picked MAYR it was the station located closest to a forecast grid point
 # get data into a dataframe format.  each row is different time and each column represents difference ensembles, forecast
 # time and variables 
+
 MAYR = lapply(varnames, getVariable, lon = -99, lat = 37)
 MAYR = scale.default(do.call(cbind, MAYR))
 MAYR = as.data.frame(MAYR)
+
+# get the 4 closest GEFS station and merge the data into one large data frame
+a = closestGEFS("MAYR")
+MAYR = list()
+
+for(i in 1:nrow(a)){
+  MAYR[[i]] = lapply(varnames, getVariable, lon = a$lon[i], lat = a$lat[i])
+  MAYR[[i]] = scale.default(do.call(cbind, MAYR[[i]]))
+  MAYR[[i]] = as.data.frame(MAYR[[i]])  
+}
+
+MAYR = do.call(cbind, MAYR)
+colnames(MAYR) = 1:ncol(MAYR)
 
 # load the response variable and add it to the MAYR data frame 
 train = read.csv("data/train.csv")
@@ -73,8 +92,14 @@ fit = lm(y ~ ., MAYR)
 # linear model seems to be a pretty good fit to the data. Rsquared of 0.86 
 plot(fit$fitted.values, MAYR$y)
 summary(fit)
+mean(abs(fit$fitted.values-MAYR$y)) 
 
 # tried to train a SVM and RandomForest.  Took forever, never completed.
-# fitControl = trainControl(method="cv", number=5)
-# svmFit = train(y ~ ., data=MAYR, method="rf", 
-#                trControl=fitControl, tuneLength=5)
+fitControl = trainControl(method="cv", number=4)
+svmFit = train(y ~ ., data=MAYR, method="earth", 
+               trControl=fitControl, tuneLength=10)
+print(svmFit)
+plot(predict(svmFit, MAYR))
+plot(predict(svmFit, MAYR)-MAYR$y)
+mean(abs(predict(svmFit, MAYR)-MAYR$y))       #MAE
+
