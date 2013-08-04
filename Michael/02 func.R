@@ -1,5 +1,6 @@
 library(ncdf)
 library(fields)
+library(caret)
 
 getVariable <- function(lon, lat, var, path = "data/train"){
   
