@@ -35,10 +35,11 @@ for(i in 1:nrow(stations)){
   
   train = do.call(cbind, train)
   colnames(train) = 1:ncol(train)         #prevent duplicated variable names after merging from different GEFS pts
+  train[is.na(train)] = 0                 # set missing values to zero
   
   #   filter out correlated variables
   trainCor = cor(train)
-  highlyCor = findCorrelation(trainCor, cutoff=0.99)
+  highlyCor = findCorrelation(trainCor, cutoff=0.95)
   train = train[,-highlyCor]
   
   #   attach response variable
@@ -61,12 +62,14 @@ for(i in 1:nrow(stations)){
   
   #   filter out correlated variables
   test = test[, -highlyCor]
+  test[is.na(test)] = 0                # set NA fields to 0
   
   pred[, i] = predict(fit, test)
   
   print(i)
 }
 
+write.csv(pred, "submission.csv")
 
 # Read in training data and fit model
 
