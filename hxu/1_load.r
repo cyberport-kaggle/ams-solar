@@ -278,6 +278,78 @@ library(foreach)
 
 registerDoMC(cores=detectCores())
 
+#singleStationData <- function(stn, dims) {
+    #cat('Cleaning data for station', stn, '\n')
+    #stnInfo <- stationInfo[stationInfo$stid == stn,]
+    ## get four closest GEFS locations
+    #gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
+    #latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
+    #lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
+    #allData <- list()
+    #i <- 1
+    #for (f in trainFiles[1:4]) {
+        #cat('Opening ', f, '\n', sep='')
+        #nc <- nc_open(paste0(dataFolder, trainFolder, f))
+        #for (lat in latIdx) {
+            #for (lon in lonIdx) {
+                #dtmp <- getAllVarData(nc, lon, lat)
+                ## flatten ensembles
+                #allData[[i]] <- combineEns(dtmp)
+                #i <- i+1
+            #}
+        #}
+        #nc_close(nc)
+    #}
+    #dates <- data.frame(date=allData[[1]][,1])
+    #colNames <- unlist(lapply(allData, function(x) {return(colnames(x)[-1])}))
+    #values <- data.frame(do.call(cbind, lapply(allData, function(x) {return(x[,-1])})))
+    #colnames(values) <- colNames
+    #allData <- cbind(dates, values)
+
+    #return(allData)
+#}
+
+unlistData <- function(allData) {
+    # Takes a list of data frames and combines them.  Expects all data frames to have a date column as the first column.
+    # also all data frames should be the same number of rows.
+    dates <- data.frame(date=allData[[1]][,1])
+    colNames <- unlist(lapply(allData, function(x) {return(colnames(x)[-1])}))
+    values <- data.frame(do.call(cbind, lapply(allData, function(x) {return(x[,-1])})))
+    colnames(values) <- colNames
+    allData <- cbind(dates, values)
+    return(allData)
+}
+
+parSingleStationData <- function(stn, dims) {
+#tcolc_eatm	Total column-integrated condensate over the entire atmos.	kg m-2
+#dswrf_sfc	Downward short-wave radiative flux average at the surface	W m-2
+
+    # Parallelized version of a single station data
+    cat('Cleaning data for station', stn, '\n')
+    stnInfo <- stationInfo[stationInfo$stid == stn,]
+    # get four closest GEFS locations
+    gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
+    latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
+    lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
+    allData <- foreach(f=trainFiles[c(3,8)]) %dopar% {
+        fileData <- list()
+        i <- 1
+        cat('Opening ', f, '\n', sep='')
+        nc <- nc_open(paste0(dataFolder, trainFolder, f))
+        for (lat in latIdx) {
+            for (lon in lonIdx) {
+                dtmp <- getAllVarData(nc, lon, lat)
+                # flatten ensembles
+                fileData[[i]] <- combineEns(dtmp)
+                i <- i+1
+            }
+        }
+        nc_close(nc)
+        return(unlistData(fileData))
+    }
+    return(unlistData(allData))
+}
+
 buildDfs <- function(dfPath = 'cleaned/') {
 # For each Mesonet location:
 ## Find the four nearest GEFS Locations
@@ -293,45 +365,11 @@ buildDfs <- function(dfPath = 'cleaned/') {
     dims <- getDimensions(nc)
     nc_close(nc)
 
-    for (stn in stationNames[1]) {
-        cat('Cleaning data for station', stn, '\n')
-        stnInfo <- stationInfo[stationInfo$stid == stn,]
-        # get four closest GEFS locations
-        gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
-        latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
-        lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
-        allData <- list()
-        i <- 1
-        for (f in trainFiles[1:3]) {
-            cat('Opening ', f, '\n', sep='')
-            nc <- nc_open(paste0(dataFolder, trainFolder, f))
-            for (lat in latIdx) {
-                for (lon in lonIdx) {
-                    dtmp <- getAllVarData(nc, lon, lat)
-                    # flatten ensembles
-                    allData[[i]] <- combineEns(dtmp)
-                    i <- i+1
-                }
-            }
-            nc_close(nc)
-        }
-        dates <- data.frame(date=allData[[1]][,1])
-        colNames <- unlist(lapply(allData, function(x) {return(colnames(x)[-1])}))
-        values <- data.frame(do.call(cbind, lapply(allData, function(x) {return(x[,-1])})))
-        colnames(values) <- colNames
-        allData <- cbind(dates, values)
+    for (stn in stationNames) {
+        allData <- parSingleStationData(stn, dims)
         #allData <- join_all(allData, by="date")
         cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
         fn <- paste0(dataFolder, dfPath, stn, '.csv')
         write.csv(allData, fn)
     }
-}
-
-
-simpleRnorm <- function() {
-    times(10000) %do% rnorm(1)
-}
-
-parRnorm <- function() {
-    times(10000) %dopar% rnorm(1)
 }
