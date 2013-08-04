@@ -178,7 +178,15 @@ getAllVarData <- function(nc, lonIdx, latIdx) {
             k <- k + 1
         }
     }
-    dframe <- join_all(tmp, by='date')
+    # Profiling shows that the join all is really slow, so instead we'll just copy the columns, since
+    # in theory everything should be the same size.
+    #dframe <- join_all(tmp, by='date')
+    # Not using join_all reduces the processing time by 1/3
+    dates <- data.frame(date=tmp[[1]][,1])
+    colNames <- unlist(lapply(tmp, function(x) {return(colnames(x)[2])}))
+    values <- data.frame(do.call(cbind, lapply(tmp, function(x) {return(x[,2])})))
+    colnames(values) <- colNames
+    dframe <- cbind(dates, values)
     if (sum(colnames(dframe) != 'date') != 55) {
         warning(paste("Flattened data does not contain 55 columns in file ", nc$filename, sep=""))
     }
@@ -265,6 +273,10 @@ combineEns <- function(df, method='mean') {
 
 # Libraries ncdf4 and RNetCDF have basically the same functionality
 library(ncdf4)
+library(doMC)
+library(foreach)
+
+registerDoMC(cores=detectCores())
 
 buildDfs <- function(dfPath = 'cleaned/') {
 # For each Mesonet location:
@@ -281,7 +293,7 @@ buildDfs <- function(dfPath = 'cleaned/') {
     dims <- getDimensions(nc)
     nc_close(nc)
 
-    for (stn in stationNames) {
+    for (stn in stationNames[1]) {
         cat('Cleaning data for station', stn, '\n')
         stnInfo <- stationInfo[stationInfo$stid == stn,]
         # get four closest GEFS locations
@@ -290,7 +302,7 @@ buildDfs <- function(dfPath = 'cleaned/') {
         lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
         allData <- list()
         i <- 1
-        for (f in trainFiles) {
+        for (f in trainFiles[1:3]) {
             cat('Opening ', f, '\n', sep='')
             nc <- nc_open(paste0(dataFolder, trainFolder, f))
             for (lat in latIdx) {
@@ -303,9 +315,23 @@ buildDfs <- function(dfPath = 'cleaned/') {
             }
             nc_close(nc)
         }
-        allData <- join_all(allData, by="date")
+        dates <- data.frame(date=allData[[1]][,1])
+        colNames <- unlist(lapply(allData, function(x) {return(colnames(x)[-1])}))
+        values <- data.frame(do.call(cbind, lapply(allData, function(x) {return(x[,-1])})))
+        colnames(values) <- colNames
+        allData <- cbind(dates, values)
+        #allData <- join_all(allData, by="date")
         cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
         fn <- paste0(dataFolder, dfPath, stn, '.csv')
         write.csv(allData, fn)
     }
+}
+
+
+simpleRnorm <- function() {
+    times(10000) %do% rnorm(1)
+}
+
+parRnorm <- function() {
+    times(10000) %dopar% rnorm(1)
 }
