@@ -18,6 +18,7 @@ stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''))
 stationNames <- stationInfo$stid
 knownDims <- c('lat', 'lon', 'ens', 'fhour', 'intValidTime', 'intTime', 'time')
 trainData <- read.csv(paste(dataFolder, 'train.csv', sep=''))
+sampleSub <- read.csv(paste0(dataFolder, 'sampleSubmission.csv'))
 
 # Names of the netCDF files that contain the data
 # The following are all of the variables provided
@@ -320,22 +321,32 @@ unlistData <- function(allData) {
     return(allData)
 }
 
-parSingleStationData <- function(stn, dims) {
+parSingleStationData <- function(stn, dims, train=TRUE) {
 #tcolc_eatm	Total column-integrated condensate over the entire atmos.	kg m-2
 #dswrf_sfc	Downward short-wave radiative flux average at the surface	W m-2
 
     # Parallelized version of a single station data
+
     cat('Cleaning data for station', stn, '\n')
+
+    if (train) {
+        subFolder <- trainFolder
+        fileNames <- trainFiles
+    } else {
+        subFolder <- testFolder
+        fileNames <- testFiles
+    }
+
     stnInfo <- stationInfo[stationInfo$stid == stn,]
     # get four closest GEFS locations
     gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
     latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
     lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
-    allData <- foreach(f=trainFiles[c(3,8)]) %dopar% {
+    allData <- foreach(f=fileNames[c(3,8)]) %dopar% {
         fileData <- list()
         i <- 1
         cat('Opening ', f, '\n', sep='')
-        nc <- nc_open(paste0(dataFolder, trainFolder, f))
+        nc <- nc_open(paste0(dataFolder, subFolder, f))
         for (lat in latIdx) {
             for (lon in lonIdx) {
                 dtmp <- getAllVarData(nc, lon, lat)
@@ -350,7 +361,7 @@ parSingleStationData <- function(stn, dims) {
     return(unlistData(allData))
 }
 
-buildDfs <- function(dfPath = 'cleaned/') {
+buildDfs <- function(dfPath = 'cleaned/', train=TRUE) {
 # For each Mesonet location:
 ## Find the four nearest GEFS Locations
 ## For each variable we want to include in the model
@@ -359,17 +370,108 @@ buildDfs <- function(dfPath = 'cleaned/') {
 #### average over prediction hours
 #### Results in one column, add to dataset
 ## write df to folder
+    if (train) {
+        subFolder <- trainFolder
+        fileNames <- trainFiles
+    } else {
+        subFolder <- testFolder
+        fileNames <- testFiles
+    }
 
     # Read in base dimension information
-    nc <- nc_open(paste0(dataFolder, trainFolder, trainFiles[1]))
+    nc <- nc_open(paste0(dataFolder, subFolder, fileNames[1]))
     dims <- getDimensions(nc)
     nc_close(nc)
 
     for (stn in stationNames) {
-        allData <- parSingleStationData(stn, dims)
+        allData <- parSingleStationData(stn, dims, train=train)
         #allData <- join_all(allData, by="date")
         cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
         fn <- paste0(dataFolder, dfPath, stn, '.csv')
         write.csv(allData, fn)
     }
 }
+
+
+########
+# Fit Model
+########
+
+if (FALSE) {
+library(caret)
+acme <- read.csv('../data/cleaned/ACME.csv')
+acmeY <- trainData$ACME
+acmeDf <- data.frame(y=acmeY, acme[,c(-1,-2)])
+
+set.seed(998)
+fitCtrl <- trainControl(method = "cv",
+                        number = 5)
+
+acmeFit <- train(y ~ .,
+                 data=acmeDf,
+                 method="rf",
+                 trControl=fitCtrl,
+                 verbose=TRUE,
+                 ntree=100,
+                 do.trace=TRUE)
+
+library(randomForest)
+acmeRf1 <- randomForest(y~., data=acmeDf[,1:21], do.trace=TRUE)
+}
+
+stationFit <- function(stn) {
+    cat('Fitting model for', stn, '\n', sep=' ')
+    trainingPath <- '../data/cleaned/'
+    f <- paste0(trainingPath, stn, '.csv')
+    values <- read.csv(f)
+    y <- trainData[,stn]
+    trainDf <- data.frame(y=y, values[,c(-1, -2)])
+    #fitCtrl <- trainControl(method = "cv",
+                            #number = 5)
+#    stnFit <- train(y ~ .,
+                     #data=trainDf,
+                     #method="rf",
+                     #trControl=fitCtrl,
+                     #verbose=TRUE,
+                     #ntree=100)
+
+    stnFit <- randomForest(y~., data=trainDf, do.trace=TRUE, mtry=2, ntree=150)
+
+    print(stnFit)
+    save(stnFit, file=paste0('../data/models/', stn, '.Rdata'))
+}
+
+for (s in stationNames) {
+    stationFit(s)
+}
+
+foreach(s=stationNames) %dopar% {
+    stationFit(s)
+    return(NULL)
+}
+
+#buildDfs('cleanedTest/', train=FALSE)
+
+predictStation <- function(stn) {
+    # Given a station name stn, load the model, load the testing data, and use the model to predict.
+    # returns an array of values, one item for each date in the testing data
+    mdl <- get(load(paste0('../data/models/', stn, '.Rdata')))
+    rawTest <- read.csv(paste0('../data/cleanedTest/', stn, '.csv'))
+    dates <- rawTest$date
+    testData <- rawTest[,c(-1,-2)]
+    pred <- predict(mdl, testData)
+    res <- data.frame(date=dates)
+    res[,stn] <- pred
+    return(res)
+}
+
+predDf <- list()
+i <- 1
+for (s  in stationNames) {
+    cat('Prediction for station ', s, '\n', sep='')
+    predDf[[i]] <- predictStation(s)
+    i <- i + 1
+}
+res <- join_all(predDf, by="date")
+
+parRes <- mclapply(stationNames, predictStation)
