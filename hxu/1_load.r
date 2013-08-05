@@ -473,5 +473,3 @@ for (s  in stationNames) {
     i <- i + 1
 }
 res <- join_all(predDf, by="date")
-
-parRes <- mclapply(stationNames, predictStation)
