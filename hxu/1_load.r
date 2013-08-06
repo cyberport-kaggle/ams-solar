@@ -1,4 +1,4 @@
-
+setwd(dir="./hxu/")
 ##########
 # Config
 ##########
@@ -14,7 +14,7 @@ trainFolder <- 'train/' # Path to train files
 # Load basic info
 ##########
 
-stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''))
+stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE)
 stationNames <- stationInfo$stid
 knownDims <- c('lat', 'lon', 'ens', 'fhour', 'intValidTime', 'intTime', 'time')
 trainData <- read.csv(paste(dataFolder, 'train.csv', sep=''))
@@ -38,8 +38,8 @@ sampleSub <- read.csv(paste0(dataFolder, 'sampleSubmission.csv'))
 #ulwrf_sfc	 Upward long-wave radiation at the surface	 W m-2
 #ulwrf_tatm	 Upward long-wave radiation at the top of the atmosphere	 W m-2
 #uswrf_sfc	 Upward short-wave radiation at the surface	 W m-2
-trainFiles <- read.csv('train_filenames.txt', header=FALSE)[[1]]
-testFiles <- read.csv('test_filenames.txt', header=FALSE)[[1]]
+trainFiles <- read.csv('../data/train_filenames.txt', header=FALSE, stringsAsFactors = FALSE)[[1]]
+testFiles <- read.csv('../data/test_filenames.txt', header=FALSE, stringsAsFactors = FALSE)[[1]]
 
 # In R, each of the factors should have dimensions of (lon, lat, fhour, ens, time)
 # This is reversed from netCDF, and what the python code will read
@@ -326,7 +326,6 @@ parSingleStationData <- function(stn, dims, train=TRUE) {
 #dswrf_sfc	Downward short-wave radiative flux average at the surface	W m-2
 
     # Parallelized version of a single station data
-
     cat('Cleaning data for station', stn, '\n')
 
     if (train) {
@@ -342,7 +341,7 @@ parSingleStationData <- function(stn, dims, train=TRUE) {
     gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
     latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
     lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
-    allData <- foreach(f=fileNames[c(3,8)]) %dopar% {
+    allData <- foreach(f=fileNames) %dopar% {
         fileData <- list()
         i <- 1
         cat('Opening ', f, '\n', sep='')
@@ -377,7 +376,7 @@ buildDfs <- function(dfPath = 'cleaned/', train=TRUE) {
         subFolder <- testFolder
         fileNames <- testFiles
     }
-
+    
     # Read in base dimension information
     nc <- nc_open(paste0(dataFolder, subFolder, fileNames[1]))
     dims <- getDimensions(nc)
@@ -387,8 +386,8 @@ buildDfs <- function(dfPath = 'cleaned/', train=TRUE) {
         allData <- parSingleStationData(stn, dims, train=train)
         #allData <- join_all(allData, by="date")
         cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
-        fn <- paste0(dataFolder, dfPath, stn, '.csv')
-        write.csv(allData, fn)
+        fn <- paste0(dataFolder, dfPath, stn, '.RData')
+        save(allData, file = fn)
     }
 }
 
@@ -397,8 +396,8 @@ buildDfs <- function(dfPath = 'cleaned/', train=TRUE) {
 # Fit Model
 ########
 
-if (FALSE) {
 library(caret)
+if (FALSE) {
 acme <- read.csv('../data/cleaned/ACME.csv')
 acmeY <- trainData$ACME
 acmeDf <- data.frame(y=acmeY, acme[,c(-1,-2)])
@@ -419,29 +418,46 @@ library(randomForest)
 acmeRf1 <- randomForest(y~., data=acmeDf[,1:21], do.trace=TRUE)
 }
 
+
+library(randomForest)
 stationFit <- function(stn) {
     cat('Fitting model for', stn, '\n', sep=' ')
     trainingPath <- '../data/cleaned/'
-    f <- paste0(trainingPath, stn, '.csv')
-    values <- read.csv(f)
+    f <- paste0(trainingPath, stn, '.RData')
+    values <- get(load(f))
+    values <- values[, -1]
+    
+    #perform PCA     
+    pcaFit = princomp(values)
+#     values = pcaFit$scores[,1:10]
+    
     y <- trainData[,stn]
-    trainDf <- data.frame(y=y, values[,c(-1, -2)])
-    #fitCtrl <- trainControl(method = "cv",
-                            #number = 5)
-#    stnFit <- train(y ~ .,
-                     #data=trainDf,
-                     #method="rf",
-                     #trControl=fitCtrl,
-                     #verbose=TRUE,
-                     #ntree=100)
+    trainDf <- data.frame(y=y, values)
+    fitCtrl <- trainControl(method = "cv",
+                            number = 5)
+#     stnFit <- train(y ~ .,
+#                     data=trainDf,
+#                     method="rf",
+#                     trControl=fitCtrl,
+#                     verbose=TRUE,
+#                     ntree=100)
 
-    stnFit <- randomForest(y~., data=trainDf, do.trace=TRUE, mtry=2, ntree=150)
+    stnFit <- randomForest(y~., data=trainDf, do.trace=TRUE, mtry=10, ntree=500)
 
     print(stnFit)
-    save(stnFit, file=paste0('../data/models/', stn, '.Rdata'))
+#     save(stnFit, pcaFit, file=paste0('../data/models/', stn, '.Rdata'))
 }
 
-for (s in stationNames) {
+PCA <- function(stn){
+  trainingPath <- '../data/cleaned/'
+  f <- paste0(trainingPath, stn, '.RData')
+  DF = get(load(f))
+  res = princomp(DF[,-1])
+  print(sum(res$sdev[1:10]^2) / sum(res$sdev^2))
+}
+
+# Use this for Caret
+for (s in stationNames[1:5]) {
     stationFit(s)
 }
 
@@ -455,11 +471,15 @@ foreach(s=stationNames) %dopar% {
 predictStation <- function(stn) {
     # Given a station name stn, load the model, load the testing data, and use the model to predict.
     # returns an array of values, one item for each date in the testing data
-    mdl <- get(load(paste0('../data/models/', stn, '.Rdata')))
-    rawTest <- read.csv(paste0('../data/cleanedTest/', stn, '.csv'))
+    mdl <- mget(load(paste0('../data/models/', stn, '.Rdata')), envir=as.environment(-1))
+    rawTest <- get(load(paste0('../data/cleanedTest/', stn, '.RData')))
     dates <- rawTest$date
-    testData <- rawTest[,c(-1,-2)]
-    pred <- predict(mdl, testData)
+    testData <- rawTest[,c(-1)]
+    
+#     apply PCA
+#     testData <- predict(mdl[[2]], testData)[,1:10]
+    
+    pred <- predict(mdl[[1]], testData)
     res <- data.frame(date=dates)
     res[,stn] <- pred
     return(res)
@@ -473,3 +493,4 @@ for (s  in stationNames) {
     i <- i + 1
 }
 res <- join_all(predDf, by="date")
+write.csv(res, file = "submission.csv")
