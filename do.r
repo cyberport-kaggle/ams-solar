@@ -58,3 +58,6 @@ for (s  in stationNames) {
 }
 res <- join_all(predDf, by="date")
 write.csv(res, file = "submission.csv", row.names=FALSE)
+
+# TODO: Expand to grid of 8 GEFS locations, don't collapse ensembles
+# PCA was a bust, so should basically just feed in as much info as possible to the RF algorithm.
