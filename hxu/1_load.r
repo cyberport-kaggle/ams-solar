@@ -442,10 +442,10 @@ stationFit <- function(stn) {
 #                     verbose=TRUE,
 #                     ntree=100)
 
-    stnFit <- randomForest(y~., data=trainDf, do.trace=TRUE, mtry=10, ntree=500)
+    stnFit <- randomForest(y~., data=trainDf, do.trace=TRUE, mtry=10, ntree=300)
 
     print(stnFit)
-#     save(stnFit, pcaFit, file=paste0('../data/models/', stn, '.Rdata'))
+    save(stnFit, pcaFit, file=paste0('../data/models/', stn, '.Rdata'))
 }
 
 PCA <- function(stn){
@@ -487,7 +487,7 @@ predictStation <- function(stn) {
 
 predDf <- list()
 i <- 1
-for (s  in stationNames) {
+for (s in stationNames) {
     cat('Prediction for station ', s, '\n', sep='')
     predDf[[i]] <- predictStation(s)
     i <- i + 1
