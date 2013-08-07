@@ -181,6 +181,22 @@ getAllVarData <- function(nc, lonIdx, latIdx) {
     return(dframe)
 }
 
+getFullVarData <- function(nc) {
+    # Get *ALL* data out of the netcdf function.  getAllVarData only gets it for one latitude or longitude.
+    dims <- getDimensions(nc)
+    varName <- getVarName(nc)
+    tmp <- list()
+    k <- 1
+    shortVarName <- paste(shortNames[[varName]], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
+    values <- ncvar_get(nc, varName, start=startIdx, count=cnt)
+    dates <- dims$intTime
+
+    dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
+
+    # trying to melt/recast/adply, but run into memory barriers
+
+}
+
 combineHours <- function(df, method="mean") {
     # given a df that is a result of getAllVarData, reduces dimension of hours to 1
     #
@@ -268,9 +284,6 @@ unlistData <- function(allData) {
 }
 
 parSingleStationData <- function(stn, dims, subFolder=trainFolder, fileNames=trainFiles) {
-#tcolc_eatm	Total column-integrated condensate over the entire atmos.	kg m-2
-#dswrf_sfc	Downward short-wave radiative flux average at the surface	W m-2
-
     # Parallelized version of a single station data
     cat('Cleaning data for station', stn, '\n')
 
