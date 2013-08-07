@@ -28,6 +28,9 @@ sampleSub <- read.csv(paste0(dataFolder, 'sampleSubmission.csv'))
 #uswrf_sfc	 Upward short-wave radiation at the surface	 W m-2
 trainFiles <- read.csv('train_filenames.txt', header=FALSE, stringsAsFactors = FALSE)[[1]]
 testFiles <- read.csv('test_filenames.txt', header=FALSE, stringsAsFactors = FALSE)[[1]]
+# Resaved nc files, since reading Rdata is so much faster
+trainRData <- sub('\\.nc', '.Rdata', trainFiles)
+testRData <- sub('\\.nc', '.Rdata', testFiles)
 
 # In R, each of the factors should have dimensions of (lon, lat, fhour, ens, time)
 # This is reversed from netCDF, and what the python code will read
@@ -69,6 +72,12 @@ names(varNames) <- shortVarNames
 longNames <- hash(varNames)
 shortNames <- invert(longNames)
 
+# Since we are not using NC files, we need a map of filename to variable name
+names(shortVarNames) <- trainRData
+trainFileToShortName <- hash(shortVarNames)
+
+
+
 getDimensions <- function(nc) {
     # Returns a list of the dimensions and their values from the netcdf file.
     # This is so that we don't have to continue to refer to dimensions just by their index
@@ -82,6 +91,11 @@ getDimensions <- function(nc) {
     res$intTime <- ncvar_get(nc, 'intTime')
     return(res)
 }
+
+# Get main dimensions
+nc <- nc_open(paste0(dataFolder, trainFolder, trainFiles[1]))
+dataDims <- getDimensions(nc)
+nc_close(nc)
 
 getVarName <- function(nc) {
     # Variable names are different in each package, so we need to read it out.
@@ -97,7 +111,7 @@ getVarName <- function(nc) {
     }
 }
 
-getPoints <- function(lon, lat, dims, n=1) {
+getPoints <- function(lon, lat, dims=dataDims, n=1) {
     # Given a latitude and longitude, find the n nearest points in the GEFS grid 
     # in each direction
     # Parameters:
@@ -128,6 +142,22 @@ getPoints <- function(lon, lat, dims, n=1) {
     }
 }
 
+ncdf2Rdata <- function(fname) {
+    # Converts an NC file to an rdata file
+    cat("Converting file ", fname, "\n", sep="")
+    nc <- nc_open(fname)
+    dims <- getDimensions(nc)
+    varName <- getVarName(nc)
+    shortVarName <- shortNames[[varName]]
+
+    values <- ncvar_get(nc, varName)
+    dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
+    ncRData <- list(name=shortVarName, data=values)
+    #assign(shortVarName, values)
+    newName <- sub('\\.nc', '.Rdata', fname)
+    save(ncRData, file=newName)
+}
+
 getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
     # Returns a data frame with one column.  Rows are dates, and the single column
     # is the variable data contained in the NetCDF file provided.  All other dimensions
@@ -150,6 +180,16 @@ getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
     res <- data.frame(date=dates)
     res[shortVarName] <- values
     return(res)
+}
+
+getVarRData <- function(fpath, lonIdx, latIdx, fhourIdx, ensIdx) {
+    # RData version of the above
+    load(fpath) # creates an ncRData object
+    shortVarName <- paste(ncRData[['name']], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
+    values <- ncRData[['data']][lonIdx, latIdx, fhourIdx, ensIdx,]
+    # TODO: take indexes of lat and lon, then use cast to reshape it instead of manually combining it
+    res <- data.frame(date=names(values))
+    res[shortVarName] <- values
 }
 
 getAllVarData <- function(nc, lonIdx, latIdx) {
@@ -181,7 +221,32 @@ getAllVarData <- function(nc, lonIdx, latIdx) {
     return(dframe)
 }
 
+getAllVarRData <- function(fpath, lonIdx, latIdx) {
+    # rdata version of the above
+    # uses global dataDims
+    k <- 1
+    tmp <- list()
+    for (i in 1:length(dataDims$fhour)) {
+        for (j in 1:length(dataDims$ens)) {
+            tmp[[k]] <- getVarRData(fpath, lonIdx, latIdx, i, j)
+            k <- k + 1
+        }
+    }
+
+    dates <- data.frame(date=tmp[[1]][,1])
+    colNames <- unlist(lapply(tmp, function(x) {return(colnames(x)[2])}))
+    values <- data.frame(do.call(cbind, lapply(tmp, function(x) {return(x[,2])})))
+    colnames(values) <- colNames
+    dframe <- cbind(dates, values)
+    if (sum(colnames(dframe) != 'date') != 55) {
+        warning(paste("Flattened data does not contain 55 columns in file ", nc$filename, sep=""))
+    }
+    return(dframe)
+
+}
+
 getFullVarData <- function(nc) {
+    # does not work, data is too large
     # Get *ALL* data out of the netcdf function.  getAllVarData only gets it for one latitude or longitude.
     dims <- getDimensions(nc)
     varName <- getVarName(nc)

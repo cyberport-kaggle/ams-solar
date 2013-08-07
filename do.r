@@ -33,8 +33,15 @@ source('2_func.r')
 ####################
 
 ## Only need to run this once!
-buildDfs(train=TRUE)
-buildDfs(train=FALSE)
+#buildDfs(train=TRUE)
+#buildDfs(train=FALSE)
+for (f in trainFiles) {
+    ncdf2Rdata(paste0(dataFolder, trainFolder, f))
+}
+
+for (f in testFiles) {
+    ncdf2Rdata(paste0(dataFolder, testFolder, f))
+}
 
 # Use this for Caret
 for (s in stationNames) {
