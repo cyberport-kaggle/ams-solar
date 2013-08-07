@@ -190,6 +190,25 @@ getFullVarData <- function(nc) {
     shortVarName <- paste(shortNames[[varName]], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
     values <- ncvar_get(nc, varName)
     dates <- dims$intTime
+    res <- matrix(data=NA, nrow=(5113*11*5*9*16), ncol=6)
+    colnames(res) <- c('lon', 'lat', 'hour', 'ens', 'date')
+    i <- 1
+    for (lo in dims$lon) {
+        for (la in dims$la) {
+            for (h in dims$h) {
+                for (e in dims$ens) {
+                    for (d in dims$intTime) {
+                        rw <- c(lo, la, h, e, d, values[lo, la, l, h, e, d])
+                        res[i,] <- rw
+                        i <- i + 1
+                        if (i %% 500) {
+                            h(res)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
 
