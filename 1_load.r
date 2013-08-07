@@ -188,7 +188,7 @@ getFullVarData <- function(nc) {
     tmp <- list()
     k <- 1
     shortVarName <- paste(shortNames[[varName]], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
-    values <- ncvar_get(nc, varName, start=startIdx, count=cnt)
+    values <- ncvar_get(nc, varName)
     dates <- dims$intTime
 
     dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)

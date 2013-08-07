@@ -1,4 +1,3 @@
-
 stationFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
     cat('Fitting model for', stn, '\n', sep=' ')
     f <- paste0(trainingPath, stn, '.RData')
