@@ -24,13 +24,11 @@ registerDoMC(cores=detectCores())
 ####################
 
 ## Only need to run this once!
-#buildDfs(train=TRUE)
-#buildDfs(train=FALSE)
-for (f in trainFiles) {
+foreach(f=trainFiles) %dopar% {
     ncdf2Rdata(paste0(dataFolder, trainFolder, f))
 }
 
-for (f in testFiles) {
+foreach(f=testFiles) %dopar% {
     ncdf2Rdata(paste0(dataFolder, testFolder, f))
 }
 

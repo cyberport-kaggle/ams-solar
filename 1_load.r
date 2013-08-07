@@ -1,6 +1,15 @@
 ##########
 # Load basic info
 ##########
+library(ncdf4)
+library(doMC)
+library(foreach)
+library(plyr)
+library(reshape)
+library(caret)
+library(randomForest)
+library(hash)
+
 
 stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE)
 stationNames <- stationInfo$stid
@@ -144,6 +153,9 @@ getPoints <- function(lon, lat, dims=dataDims, n=1) {
 
 ncdf2Rdata <- function(fname) {
     # Converts an NC file to an rdata file
+    # stores the data matrix as a list where:
+    # 1) name = the short variable name of the variable
+    # 2) data = the 5-dimensional data matrix
     cat("Converting file ", fname, "\n", sep="")
     nc <- nc_open(fname)
     dims <- getDimensions(nc)
@@ -156,6 +168,10 @@ ncdf2Rdata <- function(fname) {
     #assign(shortVarName, values)
     newName <- sub('\\.nc', '.Rdata', fname)
     save(ncRData, file=newName)
+    # manually removing the file
+    rm(ncRData)
+    rm(values)
+    gc()
 }
 
 getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
