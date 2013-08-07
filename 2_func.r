@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 library(ncdf4)
 library(doMC)
 library(foreach)
@@ -7,6 +8,8 @@ library(caret)
 library(randomForest)
 library(hash)
 
+=======
+>>>>>>> f533509f4ea0aa3d09d56f20da255d19d2346869
 stationFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
     cat('Fitting model for', stn, '\n', sep=' ')
     f <- paste0(trainingPath, stn, '.RData')
