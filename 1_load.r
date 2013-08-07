@@ -276,7 +276,7 @@ parSingleStationData <- function(stn, dims, subFolder=trainFolder, fileNames=tra
 
     stnInfo <- stationInfo[stationInfo$stid == stn,]
     # get four closest GEFS locations
-    gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims)
+    gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims, n = 2)
     latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
     lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
     allData <- foreach(f=fileNames) %dopar% {
@@ -289,6 +289,7 @@ parSingleStationData <- function(stn, dims, subFolder=trainFolder, fileNames=tra
                 dtmp <- getAllVarData(nc, lon, lat)
                 # flatten ensembles
                 fileData[[i]] <- combineEns(dtmp)
+#                 fileData[[i]] <- dtmp
                 i <- i+1
             }
         }

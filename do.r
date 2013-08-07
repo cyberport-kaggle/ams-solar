@@ -1,14 +1,3 @@
-library(ncdf4)
-library(doMC)
-library(foreach)
-library(plyr)
-library(reshape)
-library(caret)
-library(randomForest)
-library(hash)
-
-registerDoMC(cores=detectCores())
-
 ##########
 # Config
 ##########
@@ -24,6 +13,8 @@ modelsFolder <- 'models/'
 source('1_load.r')
 source('2_func.r')
 
+registerDoMC(cores=detectCores())
+
 #########
 # Run
 #########
@@ -37,9 +28,9 @@ buildDfs(train=TRUE)
 buildDfs(train=FALSE)
 
 # Use this for Caret
-for (s in stationNames) {
-    stationFit(s)
-}
+# for (s in sample(stationNames, 10)) {
+#     stationFit(s)
+# }
 
 foreach(s=stationNames) %dopar% {
     stationFit(s)
@@ -56,5 +47,7 @@ for (s  in stationNames) {
     predDf[[i]] <- predictStation(s)
     i <- i + 1
 }
+
 res <- join_all(predDf, by="date")
+
 write.csv(res, file = "submission.csv", row.names=FALSE)
