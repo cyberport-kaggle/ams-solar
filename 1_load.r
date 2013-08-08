@@ -307,21 +307,15 @@ buildDfs <- function(train=TRUE) {
 ## write df to folder
     if (train) {
         subFolder <- trainFolder
-        fileNames <- trainFiles
+        fileNames <- trainRData
         dfPath <- trainOutFolder
     } else {
         subFolder <- testFolder
-        fileNames <- testFiles
+        fileNames <- testRData
         dfPath <- testOutFolder
     }
-    
-    # Read in base dimension information
-    nc <- nc_open(paste0(dataFolder, subFolder, fileNames[1]))
-    dims <- getDimensions(nc)
-    nc_close(nc)
-
     for (stn in stationNames) {
-        allData <- parSingleStationData(stn, dims, subFolder=subFolder, fileNames=fileNames)
+        allData <- parSingleStationData(stn, subFolder=subFolder, fileNames=fileNames)
         #allData <- join_all(allData, by="date")
         cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
         fn <- paste0(dataFolder, dfPath, stn, '.RData')

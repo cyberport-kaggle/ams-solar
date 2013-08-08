@@ -44,6 +44,8 @@ foreach(s=stationNames) %dopar% {
 
 #buildDfs('cleanedTest/', train=FALSE)
 
+buildDfs(train=FALSE)
+buildDfs(train=TRUE)
 
 predDf <- list()
 i <- 1
