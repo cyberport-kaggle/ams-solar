@@ -1,6 +1,15 @@
 ##########
 # Load basic info
 ##########
+library(ncdf4)
+library(doMC)
+library(foreach)
+library(plyr)
+library(reshape)
+library(caret)
+library(randomForest)
+library(hash)
+
 
 stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE)
 stationNames <- stationInfo$stid
@@ -144,6 +153,9 @@ getPoints <- function(lon, lat, dims=dataDims, n=1) {
 
 ncdf2Rdata <- function(fname) {
     # Converts an NC file to an rdata file
+    # stores the data matrix as a list where:
+    # 1) name = the short variable name of the variable
+    # 2) data = the 5-dimensional data matrix
     cat("Converting file ", fname, "\n", sep="")
     nc <- nc_open(fname)
     dims <- getDimensions(nc)
@@ -156,6 +168,11 @@ ncdf2Rdata <- function(fname) {
     #assign(shortVarName, values)
     newName <- sub('\\.nc', '.Rdata', fname)
     save(ncRData, file=newName)
+    # manually removing the file
+    rm(ncRData)
+    rm(values)
+    gc()
+    nc_close(nc)
 }
 
 getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
@@ -182,67 +199,34 @@ getVarData <- function(nc, lonIdx, latIdx, fhourIdx, ensIdx) {
     return(res)
 }
 
-getVarRData <- function(fpath, lonIdx, latIdx, fhourIdx, ensIdx) {
-    # RData version of the above
-    load(fpath) # creates an ncRData object
-    shortVarName <- paste(ncRData[['name']], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
-    values <- ncRData[['data']][lonIdx, latIdx, fhourIdx, ensIdx,]
-    # TODO: take indexes of lat and lon, then use cast to reshape it instead of manually combining it
-    res <- data.frame(date=names(values))
-    res[shortVarName] <- values
-}
-
-getAllVarData <- function(nc, lonIdx, latIdx) {
-    # For a given GEFS location and variable file, get and collapse all data
-    # Returns a dataframe where columns are the variables at different combinations of
-    # ensemble and forecast hour
-    # so should have a total of 5 * 11 = 55 columns
-    dims <- getDimensions(nc)
-    tmp <- list()
-    k <- 1
-    for (i in 1:length(dims$fhour)) {
-        for (j in 1:length(dims$ens)) {
-            tmp[[k]] <- getVarData(nc, lonIdx, latIdx, i, j)
-            k <- k + 1
-        }
+getVarByLocationHour <- function(fpath, lonIdx, latIdx) {
+    # gets data out of a RData file, and averages over ensembles in the process
+    # so it keeps the dimensions of variable-location-hour
+    # accepts a numeric vector for lonIdx and latIdx, but can run into memory issues if you try 
+    # to get too many at once
+    load(fpath)
+    varName <- ncRData[['name']]
+    cat('Melting ', varName, '\n', sep="")
+    melted <- melt(ncRData[['data']][lonIdx, latIdx,,,])
+    rows <- list(.(date))
+    cols <- .()
+    if ('lon' %in% colnames(melted)) {
+        cols <- c(cols, .(lon))
     }
-    # Profiling shows that the join all is really slow, so instead we'll just copy the columns, since
-    # in theory everything should be the same size.
-    #dframe <- join_all(tmp, by='date')
-    # Not using join_all reduces the processing time by 1/3
-    dates <- data.frame(date=tmp[[1]][,1])
-    colNames <- unlist(lapply(tmp, function(x) {return(colnames(x)[2])}))
-    values <- data.frame(do.call(cbind, lapply(tmp, function(x) {return(x[,2])})))
-    colnames(values) <- colNames
-    dframe <- cbind(dates, values)
-    if (sum(colnames(dframe) != 'date') != 55) {
-        warning(paste("Flattened data does not contain 55 columns in file ", nc$filename, sep=""))
+    if ('lat' %in% colnames(melted)) {
+        cols <- c(cols, .(lat))
     }
-    return(dframe)
-}
+    cols <- list(c(cols, .(hour)))
+    cat('Casting ', varName, '\n', sep="")
+    res <- dcast(melted, c(rows, cols), mean, value.var="value") # turns date into rows, and combinations of ens, lat, and lon into columns
+    # averages over ens, the only remaining dimension
+    colnames(res) <- c('date', paste0(varName, "_", colnames(res[-1])))
 
-getAllVarRData <- function(fpath, lonIdx, latIdx) {
-    # rdata version of the above
-    # uses global dataDims
-    k <- 1
-    tmp <- list()
-    for (i in 1:length(dataDims$fhour)) {
-        for (j in 1:length(dataDims$ens)) {
-            tmp[[k]] <- getVarRData(fpath, lonIdx, latIdx, i, j)
-            k <- k + 1
-        }
-    }
-
-    dates <- data.frame(date=tmp[[1]][,1])
-    colNames <- unlist(lapply(tmp, function(x) {return(colnames(x)[2])}))
-    values <- data.frame(do.call(cbind, lapply(tmp, function(x) {return(x[,2])})))
-    colnames(values) <- colNames
-    dframe <- cbind(dates, values)
-    if (sum(colnames(dframe) != 'date') != 55) {
-        warning(paste("Flattened data does not contain 55 columns in file ", nc$filename, sep=""))
-    }
-    return(dframe)
-
+    #cleanup
+    rm(ncRData)
+    rm(melted)
+    gc()
+    return(res)
 }
 
 getFullVarData <- function(nc) {
@@ -281,81 +265,6 @@ getFullVarData <- function(nc) {
 
 }
 
-combineHours <- function(df, method="mean") {
-    # given a df that is a result of getAllVarData, reduces dimension of hours to 1
-    #
-    # For example, df will have column names with suffixes 1111, 1112, 1113 ... 1121, 1122... etc.
-    # Forecast hour is the third number, so this function will combine columns:
-    # 1111, 1121, 1131, 1141, 1151 to be 1101, and then the same with 1112, 1122, etc.
-    #
-    # Since getAllVarData has fixed lat and lon, we actually only need to flatten for the ensemble dimension
-
-    if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
-        stop("Method is not valid")
-    }
-
-    # Get the suffixes of each column name
-    # Split first by _, then split by .
-    splitNames <- strsplit(colnames(df), '_')
-    suffixes <- unlist(lapply(splitNames, function(x) {return(x[2])}))
-    # This gives a list of numeric vectors, which indicate the dimensions of lat, lon, hour, and ensemble for each column of the df
-    # Also element 1 of the list is NA since that was the date column
-    idx <- strsplit(suffixes, '\\.')
-
-    # Additionally, infer a few things about this data.frame from the names
-    varName <- splitNames[[2]][1]
-    lonIdx <- substr(splitNames[[2]][2], 1, 1)
-    latIdx <- substr(splitNames[[2]][2], 3, 3)
-
-    ens <- as.numeric(unlist(lapply(idx, function(x) {x[4]})))
-    uniqueEns <- unique(ens[!is.na(ens)])
-    res <- data.frame(date=df$date)
-    for (e in uniqueEns) {
-        # The columns to merge
-        colIdx <- which(ens == e)
-        newCol <- apply(df[,colIdx], 1, get(method))
-        # add the new column to the res data frame
-        newName <- paste(varName, '_', paste(lonIdx, latIdx, 0, e, sep="."), sep="")
-        res[,newName] <- newCol
-    }
-    return(res)
-}
-
-combineEns <- function(df, method='mean') {
-    # Basically exactly the same as combineHours, but for combining across ensembles
-    if (!(method %in% c('mean', 'sum', 'max', 'min'))) {
-        stop("Method is not valid")
-    }
-
-    # Get the suffixes of each column name
-    # Split first by _, then split by .
-    splitNames <- strsplit(colnames(df), '_')
-    suffixes <- unlist(lapply(splitNames, function(x) {return(x[2])}))
-    # This gives a list of numeric vectors, which indicate the dimensions of lat, lon, hour, and ensemble for each column of the df
-    # Also element 1 of the list is NA since that was the date column
-    idx <- strsplit(suffixes, '\\.')
-
-    # Additionally, infer a few things about this data.frame from the names
-    varName <- splitNames[[2]][1]
-    lonIdx <- substr(splitNames[[2]][2], 1, 1)
-    latIdx <- substr(splitNames[[2]][2], 3, 3)
-
-    hrs <- as.numeric(unlist(lapply(idx, function(x) {x[3]})))
-    uniqueHrs <- unique(hrs[!is.na(hrs)])
-    res <- data.frame(date=df$date)
-    for (hr in uniqueHrs) {
-        # The columns to merge
-        colIdx <- which(hrs == hr)
-        newCol <- apply(df[,colIdx], 1, get(method))
-        # add the new column to the res data frame
-        newName <- paste(varName, '_', paste(lonIdx, latIdx, hr, 0, sep="."), sep="")
-        res[,newName] <- newCol
-    }
-    return(res)
-
-}
-
-
 unlistData <- function(allData) {
     # Takes a list of data frames and combines them.  Expects all data frames to have a date column as the first column.
     # also all data frames should be the same number of rows.
@@ -367,31 +276,22 @@ unlistData <- function(allData) {
     return(allData)
 }
 
-parSingleStationData <- function(stn, dims, subFolder=trainFolder, fileNames=trainFiles) {
-    # Parallelized version of a single station data
+parSingleStationData <- function(stn, dims=dataDims, subFolder=trainFolder, fileNames=trainRData, ndist=2) {
+    # Generates dataset for a single station
     cat('Cleaning data for station', stn, '\n')
 
     stnInfo <- stationInfo[stationInfo$stid == stn,]
-    # get four closest GEFS locations
-    gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims, n = 2)
+    # get 4^n closest GEFS locations
+    gefsLocs <- getPoints(stnInfo$elon, stnInfo$nlat, dims, n = ndist)
     latIdx <- seq(gefsLocs$latStart, gefsLocs$latStart + gefsLocs$latCnt - 1)
     lonIdx <- seq(gefsLocs$lonStart, gefsLocs$lonStart + gefsLocs$lonCnt - 1)
     allData <- foreach(f=fileNames) %dopar% {
         fileData <- list()
         i <- 1
         cat('Opening ', f, '\n', sep='')
-        nc <- nc_open(paste0(dataFolder, subFolder, f))
-        for (lat in latIdx) {
-            for (lon in lonIdx) {
-                dtmp <- getAllVarData(nc, lon, lat)
-                # flatten ensembles
-                fileData[[i]] <- combineEns(dtmp)
-#                 fileData[[i]] <- dtmp
-                i <- i+1
-            }
-        }
-        nc_close(nc)
-        return(unlistData(fileData))
+        fpath <- paste0(dataFolder, subFolder, f)
+        res <- getVarByLocationHour(fpath, lonIdx, latIdx)
+        return(res)
     }
     return(unlistData(allData))
 }
@@ -407,25 +307,15 @@ buildDfs <- function(train=TRUE) {
 ## write df to folder
     if (train) {
         subFolder <- trainFolder
-        fileNames <- trainFiles
+        fileNames <- trainRData
         dfPath <- trainOutFolder
     } else {
         subFolder <- testFolder
-        fileNames <- testFiles
+        fileNames <- testRData
         dfPath <- testOutFolder
     }
-    
-    # Read in base dimension information
-    nc <- nc_open(paste0(dataFolder, subFolder, fileNames[1]))
-    dims <- getDimensions(nc)
-    nc_close(nc)
-
     for (stn in stationNames) {
-        if (train) {
-            allData <- parSingleStationData(stn, dims, subFolder=subFolder, fileNames=fileNames)
-        } else {
-            allData <- parSingleStationData(stn, dims, subFolder=subFolder, fileNames=fileNames)
-        }
+        allData <- parSingleStationData(stn, subFolder=subFolder, fileNames=fileNames)
         #allData <- join_all(allData, by="date")
         cat('Writing data frame of ', ncol(allData) - 1, ' columns\n', sep="")
         fn <- paste0(dataFolder, dfPath, stn, '.RData')

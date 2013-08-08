@@ -24,8 +24,14 @@ registerDoMC(cores=detectCores())
 ####################
 
 ## Only need to run this once!
-buildDfs(train=TRUE)
-buildDfs(train=FALSE)
+
+foreach(f=trainFiles) %dopar% {
+    ncdf2Rdata(paste0(dataFolder, trainFolder, f))
+}
+
+foreach(f=testFiles) %dopar% {
+    ncdf2Rdata(paste0(dataFolder, testFolder, f))
+}
 
 # Use this for Caret
 # for (s in sample(stationNames, 10)) {
@@ -38,6 +44,9 @@ foreach(s=stationNames) %dopar% {
 }
 
 #buildDfs('cleanedTest/', train=FALSE)
+
+buildDfs(train=FALSE)
+buildDfs(train=TRUE)
 
 predDf <- list()
 i <- 1
