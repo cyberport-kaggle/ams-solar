@@ -9,6 +9,7 @@ library(reshape)
 library(caret)
 library(randomForest)
 library(hash)
+library(data.table)
 
 
 stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE)
@@ -218,13 +219,17 @@ getVarByLocationHour <- function(fpath, lonIdx, latIdx) {
     }
     cols <- list(c(cols, .(hour)))
     cat('Casting ', varName, '\n', sep="")
-    res <- dcast(melted, c(rows, cols), mean, value.var="value") # turns date into rows, and combinations of ens, lat, and lon into columns
+    meltedDt <- data.table(melted)
+    meltedDtAvg <- meltedDt[,list(value=mean(value)), by="lat,lon,hour,date"] # aggregate
+    res <- dcast(meltedDtAvg, c(rows, cols) , NULL, value.var="value") # turns date into rows, and combinations of ens, lat, and lon into columns
     # averages over ens, the only remaining dimension
     colnames(res) <- c('date', paste0(varName, "_", colnames(res[-1])))
 
     #cleanup
     rm(ncRData)
     rm(melted)
+    rm(meltedDt)
+    rm(meltedDtAvg)
     gc()
     return(res)
 }
