@@ -33,20 +33,21 @@ foreach(f=testFiles) %dopar% {
     ncdf2Rdata(paste0(dataFolder, testFolder, f))
 }
 
+buildDfs(train=FALSE)
+buildDfs(train=TRUE)
+
+
 # Use this for Caret
 # for (s in sample(stationNames, 10)) {
 #     stationFit(s)
 # }
 
 foreach(s=stationNames) %dopar% {
-    stationFit(s)
+#     stationFit(s)
+    boostFit(s)
     return(NULL)
 }
 
-#buildDfs('cleanedTest/', train=FALSE)
-
-buildDfs(train=FALSE)
-buildDfs(train=TRUE)
 
 predDf <- list()
 i <- 1
