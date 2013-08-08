@@ -24,15 +24,8 @@ registerDoMC(cores=detectCores())
 ####################
 
 ## Only need to run this once!
-#buildDfs(train=TRUE)
-#buildDfs(train=FALSE)
-for (f in trainFiles) {
-    ncdf2Rdata(paste0(dataFolder, trainFolder, f))
-}
-
-for (f in testFiles) {
-    ncdf2Rdata(paste0(dataFolder, testFolder, f))
-}
+buildDfs(train=TRUE)
+buildDfs(train=FALSE)
 
 # Use this for Caret
 # for (s in sample(stationNames, 10)) {
@@ -46,7 +39,6 @@ foreach(s=stationNames) %dopar% {
 
 #buildDfs('cleanedTest/', train=FALSE)
 
-
 predDf <- list()
 i <- 1
 for (s  in stationNames) {
@@ -58,6 +50,3 @@ for (s  in stationNames) {
 res <- join_all(predDf, by="date")
 
 write.csv(res, file = "submission.csv", row.names=FALSE)
-
-# TODO: Expand to grid of 8 GEFS locations, don't collapse ensembles
-# PCA was a bust, so should basically just feed in as much info as possible to the RF algorithm.
