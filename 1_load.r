@@ -10,6 +10,7 @@ library(caret)
 library(randomForest)
 library(hash)
 library(data.table)
+library(gbm)
 
 
 stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE)

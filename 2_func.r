@@ -23,7 +23,7 @@ stationFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
 
     stnFit <- randomForest(y~., data=trainDf, do.trace=TRUE, mtry=22, ntree=250)
     print(stnFit)
-    save(stnFit, file=paste0('./data/models/', stn, '.Rdata'))
+    save(stnFit, file=paste0('./data/RFmodels/', stn, '.Rdata'))
 }
 
 boostFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
@@ -55,7 +55,7 @@ boostFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
   stnFit <- gbm(y~., data=trainDf, shrinkage=0.1, interaction.depth=8, n.trees=100, verbose = TRUE)
 
   print(stnFit)
-  save(stnFit, file=paste0('./data/models/', stn, '.Rdata'))
+  save(stnFit, file=paste0('./data/GBMmodels/', stn, '.Rdata'))
 }
 
 svmFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
@@ -85,7 +85,7 @@ svmFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
   #     save(stnFit, pcaFit, file=paste0('../data/models/', stn, '.Rdata'))
 }
 
-predictStation <- function(stn) {
+predictStation <- function(stn, modelsFolder=modelsFolder) {
     # Given a station name stn, load the model, load the testing data, and use the model to predict.
     # returns an array of values, one item for each date in the testing data
     mdl <- get(load(paste0(dataFolder, modelsFolder, stn, '.Rdata')))
