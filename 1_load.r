@@ -11,9 +11,10 @@ library(randomForest)
 library(hash)
 library(data.table)
 library(gbm)
+library(ggplot)
 
 
-stationInfo <- read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE)
+stationInfo <- data.table(read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE), key='stid')
 stationNames <- stationInfo$stid
 knownDims <- c('lat', 'lon', 'ens', 'fhour', 'intValidTime', 'intTime', 'time')
 trainData <- read.csv(paste(dataFolder, 'train.csv', sep=''))
@@ -233,42 +234,6 @@ getVarByLocationHour <- function(fpath, lonIdx, latIdx) {
     rm(meltedDtAvg)
     gc()
     return(res)
-}
-
-getFullVarData <- function(nc) {
-    # does not work, data is too large
-    # Get *ALL* data out of the netcdf function.  getAllVarData only gets it for one latitude or longitude.
-    dims <- getDimensions(nc)
-    varName <- getVarName(nc)
-    tmp <- list()
-    k <- 1
-    shortVarName <- paste(shortNames[[varName]], '_', paste(latIdx, lonIdx, fhourIdx, ensIdx, sep="."), sep="")
-    values <- ncvar_get(nc, varName)
-    dates <- dims$intTime
-    res <- matrix(data=NA, nrow=(5113*11*5*9*16), ncol=6)
-    colnames(res) <- c('lon', 'lat', 'hour', 'ens', 'date')
-    i <- 1
-    for (lo in dims$lon) {
-        for (la in dims$la) {
-            for (h in dims$h) {
-                for (e in dims$ens) {
-                    for (d in dims$intTime) {
-                        rw <- c(lo, la, h, e, d, values[lo, la, l, h, e, d])
-                        res[i,] <- rw
-                        i <- i + 1
-                        if (i %% 500) {
-                            h(res)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
-
-    # trying to melt/recast/adply, but run into memory barriers
-
 }
 
 unlistData <- function(allData) {

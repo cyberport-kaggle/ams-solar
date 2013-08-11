@@ -107,3 +107,55 @@ if (FALSE) {
     newSub <- data.table(cbind(date=rfWeighted[,date], rfWeighted[,-1,with=FALSE] + gbmWeighted[,-1,with=FALSE]))
     write.csv(newSub, file="wtensSubmission.csv", row.names=FALSE)
 }
+
+if (FALSE) {
+    # Some exploration of the models
+    modelFolder <- paste0(dataFolder, 'RFmodels/')
+
+    a <- foreach(stn=stationNames) %dopar% {
+        cat(stn, '\n')
+        fpath <- paste0(modelFolder, stn, '.Rdata')
+        load(fpath) # gives stnFit object
+        imp <- importance(stnFit)
+        imp <- imp[order(imp, decreasing=TRUE),,drop=FALSE]
+        return(imp)
+    }
+
+    # Try to figure out which factors in which dimensions to use
+    b <- unlist(lapply(a, rownames))
+    dim(b) <- c(1200, 98)
+
+    impFactors <- data.table(data.frame(b, stringsAsFactors=FALSE))
+    setnames(impFactors, stationNames)
+
+    getFactorNames <- function(x) {
+        sapply(strsplit(x, '_'), function(x){return(x[1])})
+    }
+    # Names only, excludes the location info
+    impFactorNames <- impFactors[,lapply(.SD, getFactorNames)]
+    # get unique factor names in top x factors for all stations
+    uniqueFactors <- unique(unlist(apply(impFactorNames[1:100,], 2, unique)))
+
+    # Hour 12 data consistently shows up at the bottom of the list
+    # up and downward SW flux at later hours of the day (18+) generally are at the top
+    # If you take top 400 factors for all models, then all of the 15 factors are being used
+    # Number of important factors drops significantly at top 100, down to 9
+
+    # Which models have the most error and why?
+    a <- foreach(stn=stationNames) %dopar% {
+        cat(stn, '\n')
+        fpath <- paste0(modelFolder, stn, '.Rdata')
+        load(fpath) # gives stnFit object
+        return(tail(stnFit$mse, 1))
+    }
+
+    errors <- data.table(stid=stationNames, error=unlist(a))
+    setkey(errors, error)
+    errorWithInfo <- stationInfo[errors]
+    ggplot(errorWithInfo, aes(x=nlat, y=error)) + geom_point()
+    ggplot(errorWithInfo, aes(x=elon, y=error)) + geom_point()
+    # This is interesting -- error seems to be correlated with longitude
+    # stations with less negative longitude have higher errors
+    ggplot(errorWithInfo, aes(x=elev, y=error)) + geom_point()
+    # higher elevations mean lower errors
+}
