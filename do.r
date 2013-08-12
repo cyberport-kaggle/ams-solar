@@ -13,7 +13,7 @@ modelsFolder <- 'models/'
 source('1_load.r')
 source('2_func.r')
 
-registerDoMC(cores=detectCores())
+registerDoMC(cores=3)
 
 #########
 # Run
@@ -158,4 +158,16 @@ if (FALSE) {
     # stations with less negative longitude have higher errors
     ggplot(errorWithInfo, aes(x=elev, y=error)) + geom_point()
     # higher elevations mean lower errors
+
+    # GBM Models
+    modelFolder <- paste0(dataFolder, 'GBMmodels/')
+    fpath <- paste0(modelFolder, 'ACME', '.Rdata')
+    load(fpath)
+    a <- foreach(stn=stationNames) %dopar% {
+        cat(stn, '\n')
+        fpath <- paste0(modelFolder, stn, '.Rdata')
+        load(fpath) # gives stnFit object
+        return(summary(stnFit))
+    }
+
 }

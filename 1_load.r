@@ -11,7 +11,7 @@ library(randomForest)
 library(hash)
 library(data.table)
 library(gbm)
-library(ggplot)
+library(ggplot2)
 
 
 stationInfo <- data.table(read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE), key='stid')
@@ -89,6 +89,92 @@ names(shortVarNames) <- trainRData
 trainFileToShortName <- hash(shortVarNames)
 
 
+if (FALSE) {
+    # This works, but the size of a single variable's data in database is well over 1gig
+    databaseName <- 'database.db'
+    trainTableName <- 'solarTrain'
+    testTableName <- 'solarTest'
+    if (!exists('db')) {
+        db <- dbDriver('SQLite')
+    }
+    if (!exists('dbc')) {
+        dbc <- dbConnect(db, databaseName)
+    }
+    createDbTables <- function() {
+        # Initialize the database tables
+        # only need to run once.  Will wipe out all other data
+        # Schema:
+        # Single really tall table with columns:
+        #  - variable
+        #  - lat
+        #  - lon
+        #  - hour
+        #  - ens
+        #  - date
+        #  - value
+        for (tableName in c(trainTableName, testTableName)) {
+            if (dbExistsTable(dbc, tableName)) {
+                conf <- readline(paste0('Table ', tableName, ' already exists.  Drop?[y/n]'))
+                if (conf == 'y') {
+                    dbRemoveTable(dbc, tableName)
+                } else {
+                    cat('Did not create table', tableName, '.\n')
+                    next
+                }
+            }
+
+            emptydf <- data.frame(variable='foo',
+                                  lat=1,
+                                  lon=1,
+                                  hour=1,
+                                  ens=1,
+                                  date=1,
+                                  value=1)[-1,]
+            sql <- dbBuildTableDefinition(dbc, tableName, value=emptydf, row.names=FALSE)
+            dbGetQuery(dbc, sql)
+            cat('Table', tableName, 'created.\n')
+        }
+    }
+    loadDatabase <- function(fname, train=TRUE) {
+        # Processes NCDF files and sticks them into an SQLite database
+        # if train is true, then it uses the training database, else it puts it into the test database
+        cat("Writing file ", fname, "to database.\n", sep="")
+        nc <- nc_open(fname)
+        dims <- getDimensions(nc)
+        varName <- getVarName(nc)
+        shortVarName <- shortNames[[varName]]
+        values <- ncvar_get(nc, varName)
+        dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
+        tbl <- data.table(melt(values))
+        rm(values)
+        gc()
+        tbl$variable <- shortVarName
+        # Need to chunk the writing to the table
+        # Total 40million rows...
+        if (train) {
+            toTable <- trainTableName
+        } else {
+            toTable <- testTableName
+        }
+        chunksize <- 5000
+        len <- nrow(tbl)
+        i <- 1
+        j <- chunksize
+        while (j <= len) {
+            cat('Writing to row ', j, '\n', sep='')
+            dbWriteTable(dbc, toTable, tbl[i:j], append=TRUE, row.names=FALSE)
+            i <- i+chunksize
+            if (j == len) {
+                j <- j + 1
+            } else if((j + chunksize) > len) {
+                j <- len
+            } else {
+                j <- j+chunksize
+            }
+        }
+    }
+}
+
 
 getDimensions <- function(nc) {
     # Returns a list of the dimensions and their values from the netcdf file.
@@ -156,9 +242,7 @@ getPoints <- function(lon, lat, dims=dataDims, n=1) {
 
 ncdf2Rdata <- function(fname) {
     # Converts an NC file to an rdata file
-    # stores the data matrix as a list where:
-    # 1) name = the short variable name of the variable
-    # 2) data = the 5-dimensional data matrix
+    # Stores file as a single tall data table
     cat("Converting file ", fname, "\n", sep="")
     nc <- nc_open(fname)
     dims <- getDimensions(nc)
@@ -167,13 +251,15 @@ ncdf2Rdata <- function(fname) {
 
     values <- ncvar_get(nc, varName)
     dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
-    ncRData <- list(name=shortVarName, data=values)
+    tbl <- data.table(melt(values))
+    rm(values)
+    gc()
+
     #assign(shortVarName, values)
     newName <- sub('\\.nc', '.Rdata', fname)
-    save(ncRData, file=newName)
+    save(tbl, file=newName)
     # manually removing the file
-    rm(ncRData)
-    rm(values)
+    rm(tbl)
     gc()
     nc_close(nc)
 }
