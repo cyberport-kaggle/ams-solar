@@ -13,7 +13,7 @@ modelsFolder <- 'models/'
 source('1_load.r')
 source('2_func.r')
 
-registerDoMC(cores=3)
+registerDoMC(cores=1)
 
 #########
 # Run
@@ -25,11 +25,11 @@ registerDoMC(cores=3)
 
 ## Only need to run this once!
 
-foreach(f=trainFiles) %dopar% {
+for (f in trainFiles) {
     ncdf2Rdata(paste0(dataFolder, trainFolder, f))
 }
 
-foreach(f=testFiles) %dopar% {
+for (f in testFiles) {
     ncdf2Rdata(paste0(dataFolder, testFolder, f))
 }
 

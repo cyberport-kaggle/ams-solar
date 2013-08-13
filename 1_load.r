@@ -252,9 +252,11 @@ ncdf2Rdata <- function(fname) {
     values <- ncvar_get(nc, varName)
     dimnames(values) <- list(lon=dims$lon, lat=dims$lat, hour=dims$fhour, ens=dims$ens, date=dims$intTime)
     tbl <- data.table(melt(values))
+    # data.table(table(values, responseName='value')) also works, but not sure which is faster
     rm(values)
     gc()
-
+    setkey(tbl, lat, lon, hour, ens, date)
+    
     #assign(shortVarName, values)
     newName <- sub('\\.nc', '.Rdata', fname)
     save(tbl, file=newName)
