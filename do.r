@@ -15,51 +15,52 @@ source('2_func.r')
 
 registerDoMC(cores=1)
 
+# Create the datasets
+####################
+
+## Only need to run this once!
+convertRawData <- function() {
+    for (f in trainFiles) {
+        ncdf2Rdata(paste0(dataFolder, trainFolder, f))
+    }
+
+    for (f in testFiles) {
+        ncdf2Rdata(paste0(dataFolder, testFolder, f))
+    }
+}
+
+
+
+##########
+# Data exploration
+##########
+
+if (FALSE) {
+    # 
+}
+
 #########
 # Run
 #########
 
 
-# Create the datasets
-####################
+makeSubmission <- function() {
+    predDf <- list()
+    i <- 1
+    for (s  in stationNames) {
+        cat('Prediction for station ', s, '\n', sep='')
+        predDf[[i]] <- predictStation(s)
+        i <- i + 1
+    }
 
-## Only need to run this once!
+    res <- join_all(predDf, by="date")
 
-for (f in trainFiles) {
-    ncdf2Rdata(paste0(dataFolder, trainFolder, f))
+    write.csv(res, file = "submission.csv", row.names=FALSE)
 }
 
-for (f in testFiles) {
-    ncdf2Rdata(paste0(dataFolder, testFolder, f))
-}
-
-buildDfs(train=TRUE)
-buildDfs(train=FALSE)
-
-
-# Use this for Caret
-# for (s in sample(stationNames, 10)) {
-#     stationFit(s)
-# }
-
-foreach(s=stationNames) %dopar% {
-    #stationFit(s)
-    boostFit(s)
-    return(NULL)
-}
-
-
-predDf <- list()
-i <- 1
-for (s  in stationNames) {
-    cat('Prediction for station ', s, '\n', sep='')
-    predDf[[i]] <- predictStation(s)
-    i <- i + 1
-}
-
-res <- join_all(predDf, by="date")
-
-write.csv(res, file = "submission.csv", row.names=FALSE)
+#########
+# Some attempts at ensembling the straightforward GBM and RF models
+#########
 
 if (FALSE) {
     # Ensembling GBM and RF by simple average
@@ -107,6 +108,10 @@ if (FALSE) {
     newSub <- data.table(cbind(date=rfWeighted[,date], rfWeighted[,-1,with=FALSE] + gbmWeighted[,-1,with=FALSE]))
     write.csv(newSub, file="wtensSubmission.csv", row.names=FALSE)
 }
+
+##################
+# Model exploration
+################
 
 if (FALSE) {
     # Some exploration of the models
