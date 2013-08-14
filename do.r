@@ -36,7 +36,15 @@ convertRawData <- function() {
 ##########
 
 if (FALSE) {
-    # 
+    # Downard shortwave radiative flux
+    fpath <- paste0(dataFolder, trainFolder, trainRData[3])
+    load(fpath)
+    # Taking a look at the ensembles -- how much do they actually differ?
+    ggplot(
+           tbl[.(lon==dataDims$lon[1],
+               lat==dataDims$lon[1],
+               hour==dataDims$fhour[3])],
+           aes(y=value, color=ens)) + geom_point()
 }
 
 #########
