@@ -17,7 +17,8 @@ library(ggplot2)
 stationInfo <- data.table(read.csv(paste(dataFolder, 'station_info.csv', sep=''), stringsAsFactors = FALSE), key='stid')
 stationNames <- stationInfo$stid
 knownDims <- c('lat', 'lon', 'ens', 'fhour', 'intValidTime', 'intTime', 'time')
-trainData <- read.csv(paste(dataFolder, 'train.csv', sep=''))
+trainData <- data.table(read.csv(paste(dataFolder, 'train.csv', sep='')), key='Date')
+setnames(trainData, 'Date', 'date')
 sampleSub <- read.csv(paste0(dataFolder, 'sampleSubmission.csv'))
 
 # Names of the netCDF files that contain the data
@@ -272,12 +273,19 @@ parseDate <- function(tbl, dates=NULL) {
     stop('Date column not present')
   }
   oldKeys <- key(tbl)
-  setkey(tbl, 'date')
+  if (oldKeys != c('date')) {
+    setkey(tbl, 'date')
+  }
   if (is.null(dates)) {
     # Can be passed in, since dates are the same for all of the data files, so we don't have to recalculate
     # this every time, which actually takes a long time, since you have to coerce from integer to string to IDate
-    dates <- tbl[,as.IDate(as.character(date/100), format="%Y%m%d"), by='date']
     # Gives a data table of unique dates
+    dateCheck <- substr(tbl$date[1:100], 9, 10)
+    if (all(dateCheck == "00")) {
+      dates <- tbl[,as.IDate(as.character(date/100), format="%Y%m%d"), by='date']
+    } else {
+      dates <- tbl[,as.IDate(as.character(date), format="%Y%m%d"), by='date']
+    }
   }
   # join it to data table
   tbl <- dates[tbl]
