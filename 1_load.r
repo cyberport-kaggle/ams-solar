@@ -265,3 +265,25 @@ ncdf2Rdata <- function(fname) {
     gc()
     nc_close(nc)
 }
+
+parseDate <- function(tbl, dates=NULL) {
+  # Takes any data table who has a 'date' column and parses the date to the right type (instead of int)
+  if (!('date' %in% names(tbl))) {
+    stop('Date column not present')
+  }
+  oldKeys <- key(tbl)
+  setkey(tbl, 'date')
+  if (is.null(dates)) {
+    # Can be passed in, since dates are the same for all of the data files, so we don't have to recalculate
+    # this every time, which actually takes a long time, since you have to coerce from integer to string to IDate
+    dates <- tbl[,as.IDate(as.character(date/100), format="%Y%m%d"), by='date']
+    # Gives a data table of unique dates
+  }
+  # join it to data table
+  tbl <- dates[tbl]
+  tbl[, date:= NULL]
+  tbl[, date:= V1]
+  tbl[, V1:= NULL]
+  setkeyv(tbl, oldKeys)
+  return(tbl)
+}
