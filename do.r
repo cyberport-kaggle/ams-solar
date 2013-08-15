@@ -72,6 +72,10 @@ if (FALSE) {
       geom_point(data=tblSubset, aes(x=date, y=value, color=ens)) +
       geom_line(data=stnTrain, aes(x=date, y=BOIS, color="BOIS"))
     
+    ggplot() +
+      geom_point(data=tblSubset[, list(value=mean(value)), by='date'], aes(x=date, y=value, color='DWSWFlux')) +
+      geom_line(data=stnTrain, aes(x=date, y=BOIS, color="BOIS"))
+    
     scatter <- merge(tblSubset, stnTrain, by="date")
     ggplot(scatter, aes(x=BOIS, y=value, color=ens)) + geom_point()
     ggplot(scatter[, list(value=mean(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
