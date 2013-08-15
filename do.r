@@ -52,18 +52,33 @@ if (FALSE) {
     # on some days
     selector <- CJ(pts$lat[1],
                      pts$lon[1],
-                     18,
+                     unique(tbl$hour),
                      unique(tbl$ens),
                      seq(as.Date('1994-01-01'), as.Date('1994-12-31'), by='1 day'))
+    tblSubset <- tbl[selector]
+    tblSubset <- tblSubset[, list(value=sum(value * 3600 *3)), by='date,ens']
     ggplot(
-           tbl[selector],
+           tblSubset,
            aes(x=date, y=value, color=ens)
            ) + geom_point() + scale_colour_discrete()
     
     # Is there some correlation between the SD of the ensembles' predictions
-    # and the correlation with the actual values?
+    # and the factor's relationship with the actual solar output?
     stnTrain <- parseDate(trainData)
-    stnTrain <- stnTrain[selector[, 5, with=FALSE], c('date', stn$stid), with=FALSE]
+    stnTrain <- stnTrain[J(seq(as.Date('1994-01-01'), as.Date('1994-12-31'), by='1 day')),
+                         c('date', stn$stid),
+                         with=FALSE]
+    ggplot() +
+      geom_point(data=tblSubset, aes(x=date, y=value, color=ens)) +
+      geom_line(data=stnTrain, aes(x=date, y=BOIS, color="BOIS"))
+    
+    scatter <- merge(tblSubset, stnTrain, by="date")
+    ggplot(scatter, aes(x=BOIS, y=value, color=ens)) + geom_point()
+    ggplot(scatter[, list(value=mean(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
+    ggplot(scatter[, list(value=median(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
+    ggplot(scatter[, list(value=sd(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
+    ggplot(scatter, aes(x=BOIS, y=value)) + geom_point() + facet_wrap(~ens)
+
  }
 
 #########
