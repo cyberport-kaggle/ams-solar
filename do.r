@@ -39,13 +39,32 @@ if (FALSE) {
     # Downard shortwave radiative flux
     fpath <- paste0(dataFolder, trainFolder, trainRData[3])
     load(fpath)
+    # Get a station
+    stn <- stationInfo[10]
+    pts <- getPoints(stn$elon, stn$nlat)
+    
     # Taking a look at the ensembles -- how much do they actually differ?
+    # Key order is lat, lon, hour, ens, date
+    tbl <- parseDate(tbl)
+    tbl <- tbl[, ens:=as.factor(ens)]
+    setkey(tbl, lat, lon, hour, ens, date)
+    # If you look at the ensembles, there is actually pretty substantial separation
+    # on some days
+    selector <- CJ(pts$lat[1],
+                     pts$lon[1],
+                     18,
+                     unique(tbl$ens),
+                     seq(as.Date('1994-01-01'), as.Date('1994-12-31'), by='1 day'))
     ggplot(
-           tbl[.(lon==dataDims$lon[1],
-               lat==dataDims$lon[1],
-               hour==dataDims$fhour[3])],
-           aes(y=value, color=ens)) + geom_point()
-}
+           tbl[selector],
+           aes(x=date, y=value, color=ens)
+           ) + geom_point() + scale_colour_discrete()
+    
+    # Is there some correlation between the SD of the ensembles' predictions
+    # and the correlation with the actual values?
+    stnTrain <- parseDate(trainData)
+    stnTrain <- stnTrain[selector[, 5, with=FALSE], c('date', stn$stid), with=FALSE]
+ }
 
 #########
 # Run

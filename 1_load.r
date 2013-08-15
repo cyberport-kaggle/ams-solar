@@ -237,7 +237,9 @@ getPoints <- function(lon, lat, dims=dataDims, n=1) {
         return(NULL)
     } else {
         cat("Using GEFS points at lats: ", paste(lats[latIdx], collapse=" "), " and lons: ", paste(lons[lonIdx], collapse=" "), '\n', sep="")
-        return(list(latStart=latIdx[1], latCnt=n*2, lonStart=lonIdx[1], lonCnt=n*2))
+        return(list(
+          lat=lats[latIdx], lon=lons[lonIdx]
+        ))
     }
 }
 
@@ -272,8 +274,12 @@ parseDate <- function(tbl, dates=NULL) {
   if (!('date' %in% names(tbl))) {
     stop('Date column not present')
   }
+  if ('Date' %in% class(tbl$date)) {
+    warning("Date is already in the right type")
+    return(FALSE);
+  }
   oldKeys <- key(tbl)
-  if (oldKeys != c('date')) {
+  if (!identical(oldKeys, c('date'))) {
     setkey(tbl, 'date')
   }
   if (is.null(dates)) {
@@ -292,6 +298,7 @@ parseDate <- function(tbl, dates=NULL) {
   tbl[, date:= NULL]
   tbl[, date:= V1]
   tbl[, V1:= NULL]
+  cat('Reassigning keys ', paste(oldKeys, sep=" "), "\n", sep="")
   setkeyv(tbl, oldKeys)
   return(tbl)
 }
