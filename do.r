@@ -162,9 +162,8 @@ if (FALSE) {
         return(tail(stnFit$mse, 1))
     }
 
-    errors <- data.table(stid=stationNames, error=unlist(a))
-    setkey(errors, error)
-    errorWithInfo <- stationInfo[errors]
+    rfErrors <- data.table(stid=stationNames, error=unlist(a), key='stid')
+    errorWithInfo <- stationInfo[rfErrors]
     ggplot(errorWithInfo, aes(x=nlat, y=error)) + geom_point()
     ggplot(errorWithInfo, aes(x=elon, y=error)) + geom_point()
     # This is interesting -- error seems to be correlated with longitude
@@ -172,6 +171,20 @@ if (FALSE) {
     ggplot(errorWithInfo, aes(x=elev, y=error)) + geom_point()
     # higher elevations mean lower errors
 
+    gbmErrors <- foreach(stn=stationNames, .combine='c') %dopar% {
+        fpath <- paste0(dataFolder, 'GBMmodels/', stn, '.Rdata')
+        cat('Opening ', fpath, '\n', sep='')
+        load(fpath)
+        err <- tail(stnFit$train.error, 1)
+        return(err)
+    }    
+    
+    gbmErrors <- data.table(stid=stationNames, error=gbmErrors, key='stid')
+    errorWithInfo <- errorWithInfo[gbmErrors]
+    setnames(errorWithInfo, 'error', 'rfError')
+    setnames(errorWithInfo, 'error.1', 'gbmError')
+    save(errorWithInfo, file='modelErrors.RData')
+    
     # GBM Models
     modelFolder <- paste0(dataFolder, 'GBMmodels/')
     fpath <- paste0(modelFolder, 'ACME', '.Rdata')
@@ -183,4 +196,5 @@ if (FALSE) {
         return(summary(stnFit))
     }
 
+  
 }
