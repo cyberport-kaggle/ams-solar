@@ -6,3 +6,9 @@ data/
 .RData
 .Rhistory
 submission.csv
+
+.Rhistory
+
+*.csv
+
+submission.csv
