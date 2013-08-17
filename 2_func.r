@@ -1,3 +1,24 @@
+# Creates the data.tables for each Mesonet station. 
+stationData <- function(factors, train){
+  if(train) path = "data/train"
+  else path = "data/test"
+  res = list()
+  
+  #   Loop through factors
+  for(f in factors){
+    data = get(load(Sys.glob(file.path(path, paste0(f, '*', ".Rdata",collapse ='')))))
+
+    #   For each factor, loop through stations
+    for(s in 1:nrow(stationInfo)){
+      locs = getPoints(stationInfo[s, elon], stationInfo[s, nlat], n = 2)
+      return(locs)
+    }
+  }
+}  
+
+
+
+
 stationFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
     cat('Fitting model for', stn, '\n', sep=' ')
     f <- paste0(trainingPath, stn, '.RData')
