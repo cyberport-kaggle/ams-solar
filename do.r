@@ -13,7 +13,7 @@ modelsFolder <- 'models/'
 source('1_load.r')
 source('2_func.r')
 
-registerDoMC(cores=1)
+registerDoMC(cores=4)
 
 # Create the datasets
 ####################
@@ -76,12 +76,26 @@ if (FALSE) {
       geom_point(data=tblSubset[, list(value=mean(value)), by='date'], aes(x=date, y=value, color='DWSWFlux')) +
       geom_line(data=stnTrain, aes(x=date, y=BOIS, color="BOIS"))
     
+    ggplot() +
+      geom_point(data=tblSubset[, list(max=mean(value) + sd(value), min=mean(value) - sd(value)), by='date'], aes(x=date, y=max, color='DWSWFlux - max')) +
+      geom_point(data=tblSubset[, list(max=mean(value) + sd(value), min=mean(value) - sd(value)), by='date'], aes(x=date, y=min, color='DWSWFlux - min')) +
+      geom_line(data=stnTrain, aes(x=date, y=BOIS, color="BOIS"))
+    
     scatter <- merge(tblSubset, stnTrain, by="date")
     ggplot(scatter, aes(x=BOIS, y=value, color=ens)) + geom_point()
     ggplot(scatter[, list(value=mean(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
+    ggplot(scatter[, list(value=min(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
     ggplot(scatter[, list(value=median(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
     ggplot(scatter[, list(value=sd(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
     ggplot(scatter, aes(x=BOIS, y=value)) + geom_point() + facet_wrap(~ens)
+    
+    # Is the spread of the ensemble predictions correlated with the deviation of actual from predicted?
+    ggplot(scatter[,list(avg=mean(value), stdev=sd(value), actual=BOIS), by='date'],
+           aes(x=stdev, y=(actual-avg))) + geom_point()
+    
+    # How much exactly is upward flux correlated with downward flux?
+    fpath <- paste0(dataFolder, trainFolder, trainRData[15])
+    load(fpath)
 
  }
 
@@ -89,6 +103,14 @@ if (FALSE) {
 # Run
 #########
 
+
+# Simplified RF with additional summary statistics (min, max, sd)
+# Testing to see if it is better on some of the worst performing models
+if (FALSE) {
+  load('modelErrors.RData')
+  stations <- h(errorWithInfo[order(errorWithInfo$rfError, decreasing=TRUE)], 5)
+  res <- selectiveRF(stations$stid)
+}
 
 makeSubmission <- function() {
     predDf <- list()
@@ -200,13 +222,13 @@ if (FALSE) {
         return(tail(stnFit$mse, 1))
     }
 
-    rfErrors <- data.table(stid=stationNames, error=unlist(a), key='stid')
+    rfErrors <- data.table(stid=stationNames, rfError=unlist(a), key='stid')
     errorWithInfo <- stationInfo[rfErrors]
-    ggplot(errorWithInfo, aes(x=nlat, y=error)) + geom_point()
-    ggplot(errorWithInfo, aes(x=elon, y=error)) + geom_point()
+    ggplot(errorWithInfo, aes(x=nlat, y=rfError)) + geom_point()
+    ggplot(errorWithInfo, aes(x=elon, y=rfError)) + geom_point()
     # This is interesting -- error seems to be correlated with longitude
     # stations with less negative longitude have higher errors
-    ggplot(errorWithInfo, aes(x=elev, y=error)) + geom_point()
+    ggplot(errorWithInfo, aes(x=elev, y=rfError)) + geom_point()
     # higher elevations mean lower errors
 
     gbmErrors <- foreach(stn=stationNames, .combine='c') %dopar% {
@@ -217,10 +239,8 @@ if (FALSE) {
         return(err)
     }    
     
-    gbmErrors <- data.table(stid=stationNames, error=gbmErrors, key='stid')
+    gbmErrors <- data.table(stid=stationNames, gbmError=gbmErrors, key='stid')
     errorWithInfo <- errorWithInfo[gbmErrors]
-    setnames(errorWithInfo, 'error', 'rfError')
-    setnames(errorWithInfo, 'error.1', 'gbmError')
     save(errorWithInfo, file='modelErrors.RData')
     
     # GBM Models
