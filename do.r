@@ -13,7 +13,7 @@ modelsFolder <- 'models/'
 source('1_load.r')
 source('2_func.r')
 
-registerDoMC(cores=1)
+registerDoMC(cores=4)
 
 # Create the datasets
 ####################
@@ -89,6 +89,9 @@ if (FALSE) {
     ggplot(scatter[, list(value=sd(value), BOIS=BOIS), by='date'], aes(x=BOIS, y=value)) + geom_point()
     ggplot(scatter, aes(x=BOIS, y=value)) + geom_point() + facet_wrap(~ens)
     
+    # Is the spread of the ensemble predictions correlated with the deviation of actual from predicted?
+    ggplot(scatter[,list(avg=mean(value), stdev=sd(value), actual=BOIS), by='date'],
+           aes(x=stdev, y=(actual-avg))) + geom_point()
     
     # How much exactly is upward flux correlated with downward flux?
     fpath <- paste0(dataFolder, trainFolder, trainRData[15])
@@ -100,6 +103,14 @@ if (FALSE) {
 # Run
 #########
 
+
+# Simplified RF with additional summary statistics (min, max, sd)
+# Testing to see if it is better on some of the worst performing models
+if (FALSE) {
+  load('modelErrors.RData')
+  stations <- h(errorWithInfo[order(errorWithInfo$rfError, decreasing=TRUE)], 5)
+  res <- selectiveRF(stations$stid)
+}
 
 makeSubmission <- function() {
     predDf <- list()
@@ -196,7 +207,7 @@ if (FALSE) {
     # Names only, excludes the location info
     impFactorNames <- impFactors[,lapply(.SD, getFactorNames)]
     # get unique factor names in top x factors for all stations
-    uniqueFactors <- unique(unlist(apply(impFactorNames[1:50,], 2, unique)))
+    uniqueFactors <- unique(unlist(apply(impFactorNames[1:100,], 2, unique)))
 
     # Hour 12 data consistently shows up at the bottom of the list
     # up and downward SW flux at later hours of the day (18+) generally are at the top
