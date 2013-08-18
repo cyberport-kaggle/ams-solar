@@ -36,6 +36,17 @@ convertRawData <- function() {
 ##########
 
 if (FALSE) {
+  # After examining the worst performing models, we noticed that some of the training data contained errors
+  load('modelErrors.RData')
+  stations <- h(errorWithInfo[order(errorWithInfo$rfError, decreasing=TRUE)], 5)
+  tmpTrain <- parseDate(trainData)
+  for (s in stations$stid) {
+    print(ggplot(tmpTrain, aes(x=date)) + geom_point(aes_string(y=s)))
+  }
+  # So we need a way to remove these observations
+}
+
+if (FALSE) {
     # Downard shortwave radiative flux
     fpath <- paste0(dataFolder, trainFolder, trainRData[3])
     load(fpath)
@@ -108,8 +119,11 @@ if (FALSE) {
 # Testing to see if it is better on some of the worst performing models
 if (FALSE) {
   load('modelErrors.RData')
-  stations <- h(errorWithInfo[order(errorWithInfo$rfError, decreasing=TRUE)], 5)
-  res <- selectiveRF(stations$stid)
+  stations <- h(errorWithInfo[order(errorWithInfo$rfError, decreasing=TRUE),], 5)
+  res <- selectiveRF(stations)
+  
+  # run the whole set of stations
+  selectiveRF()
 }
 
 makeSubmission <- function() {

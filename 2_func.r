@@ -127,6 +127,11 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/') {
   # Flux measures: 4 factors * 4 points * 4 ensemble statistics = 64
   # Tempreature/cloud: 2 factors * 4 points * 5 hours * 4 ensemble statistics = 160 
   # Total = 224 factors per station
+  #
+  # Additional Factors and cleaning:
+  # - Added a "Days from summer solstice" factor.  0 indicates that the day is the summer solsitce (June 20)
+  # and increases as you get farther from the summer solstice.  It maxes out at 365/2 = 183 days
+  # - Bad training data where the value on day t for a station is equal to the value on day t-1 is removed
   
   #####
   # Subroutines
@@ -183,6 +188,7 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/') {
   # If a subset of stations are passed in, we have to get the indexes of the stations
   stationIndices <- which(stationNames %in% stations)
   
+  registerDoMC(cores=1)
   # Load a flux file
   for (thisFile in fluxFiles) {
     cat('Loading data for factor', thisFile, '\n')
@@ -223,39 +229,52 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/') {
     gc()
   }
   # At this point, trainDts is a list with length == number of stations
+  dir.create(file.path(dataFolder, outputFolder))
+  save(trainDts, file=paste0(dataFolder, outputFolder, 'trainDts.RData'))
   # Each list item is a stations' train dataset
   
+  registerDoMC(cores=2)
   # Train each station
-  for (i in 1:length(trainDts)) {
+  cat('Training models\n')
+  foreach(i=1:length(trainDts)) %dopar% {
+    sink('log.txt', append=TRUE)
     thisStationName <- names(trainDts)[i]
-    cat('Training model for station', thisStationName, '\n')
+    cat('Training model for station', thisStationName, 'at', Sys.time(), '\n')
     
     # Annoyingly the date is formatted differently in the test data
     thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], trainDts[[thisStationName]], by='date')
     setnames(thisTrainDt, thisStationName, 'y')
     
-    # Add in a day of year kind of measure
-    # However RF cannot take more than 32 levels in a categorical variable
-    # Instead maybe calculate days from peak throughput (i.e. the summer solstice) so it can be continuous
-    thisTrainDt[, daysFromMax := yday(as.IDate(as.character(date), format="%Y%m%d")) - yday(IDate('2013-06-20'))]
+    # Some post-processing and factor generation
+    # Remove bad training data
+    badData <- which(diff(thisTrainDt$y, 1) == 0) + 1
+    thisTrainDt <- thisTrainDt[!badData]
+    cat('Dropped', length(badData), 'datapoints due to repeated values\n')
+    # Add in days from summer solstice
+    dayOfYear <- abs(yday(as.IDate(as.character(thisTrainDt$date), format="%Y%m%d")) - yday(as.IDate('2013-06-20')))
+    daysFromSolstice <- 183-abs(183-dayOfYear) 
+    thisTrainDt[, daysFromSolstice := daysFromSolstice]
+    # The presence of the date column doens't seem to hurt the RF, but should probably
+    # drop it, since it's not really part of the model
+    thisTrainDt[, date:=NULL]
 #     fitCtrl <- trainControl(method = "cv",
 #                             number = 5)
 #     stnFit <- train(y ~ .,
 #                     data=thisTrainDt,
 #                     method="rf",
 #                     trControl=fitCtrl,
-    t
 #                     verbose=TRUE,
 #                     ntree=500)
 #     # Finds mtry=113 is optimal
     # Performance really stops improving at around 400 trees
+    # This is for checking the MSE of the models
     rf <- randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=400)
+    save(list(data=thisTrainDt, model=rf), file=paste0(dataFolder, outputFolder, thisStationName, '.RData'))
     # Note that parallelized RF doesn't preserve the MSE
-    rf <- foreach(i=rep(100, 4), .combine=combine, .multicombine=TRUE) %dopar% {
-      randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=i)
-    }
-    results[[thisStationName]] <- list(data=thisTrainDt, model=rf)
+#     rf <- foreach(i=rep(100, 4), .combine=combine, .multicombine=TRUE) %dopar% {
+#       randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=i)
+#     }
+    sink()
+    return(NULL)
   }
-  return(results)
-  
 }
