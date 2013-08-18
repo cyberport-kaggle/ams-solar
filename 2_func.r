@@ -250,7 +250,7 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
     foreach(i=1:length(stations)) %dopar% {
       sink('log.txt', append=TRUE)
       thisStationName <- stations[i]
-      cat('Training model for station', thisStationName, 'at', Sys.time(), '\n')
+      cat('Training model for station', thisStationName, 'at', format(Sys.time(), "%a %b %d %X %Y"), '\n')
       
       load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
       # Annoyingly the date is formatted differently in the test data
