@@ -239,9 +239,7 @@ getPoints <- function(lon, lat, dims=dataDims, n=1) {
         return(NULL)
     } else {
         cat("Using GEFS points at lats: ", paste(lats[latIdx], collapse=" "), " and lons: ", paste(lons[lonIdx], collapse=" "), '\n', sep="")
-        return(list(
-          lat=lats[latIdx], lon=lons[lonIdx]
-        ))
+        return(expand.grid(lon = lons[lonIdx], lat = lats[latIdx]))
     }
 }
 
