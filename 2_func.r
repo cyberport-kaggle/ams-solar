@@ -104,7 +104,7 @@ predictStation <- function(stn, modelsFolder=modelsFolder) {
     return(res)
 }
 
-selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/') {
+selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', preprocess=TRUE, train=TRUE) {
   # Factor selection:
   # This is a more selective RF model, with only the factors that RF indicated were most important
   # Our cutoff was arbitrary, but we basically took the factors that ended up being in the top 50 most important factors
@@ -188,93 +188,107 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/') {
   # If a subset of stations are passed in, we have to get the indexes of the stations
   stationIndices <- which(stationNames %in% stations)
   
-  registerDoMC(cores=1)
-  # Load a flux file
-  for (thisFile in fluxFiles) {
-    cat('Loading data for factor', thisFile, '\n')
-    load(file.path(dataFolder, trainFolder, thisFile))
-    thisVarName <- trainFileToShortName[[thisFile]]
+  if (preprocess) {
     
-    # Process all stations
-    stnDts <- foreach(i=stationIndices) %dopar% {
-      thisStn <- stationInfo[i]
-      return(processSingleStation(thisStn))
+    # Load a flux file
+    for (thisFile in fluxFiles) {
+      cat('Loading data for factor', thisFile, '\n')
+      load(file.path(dataFolder, trainFolder, thisFile))
+      thisVarName <- trainFileToShortName[[thisFile]]
+      
+      # Process all stations
+      stnDts <- foreach(i=stationIndices) %dopar% {
+        thisStn <- stationInfo[i]
+        return(processSingleStation(thisStn))
+      }
+      # Have to combine out here, since can't do it in the parallelized code
+      for (i in 1:length(stnDts)) {
+        thisStn <- stationInfo[stationIndices[i]]$stid
+        trainDts <- mergeStationData(thisStn, stnDts[[i]], trainDts)
+      }
+      rm(tbl)
+      gc()
     }
-    # Have to combine out here, since can't do it in the parallelized code
-    for (i in 1:length(stnDts)) {
-      thisStn <- stationInfo[stationIndices[i]]$stid
-      trainDts <- mergeStationData(thisStn, stnDts[[i]], trainDts)
+    
+    # non-flux files
+    for (thisFile in otherFiles) {
+      cat('Loading data for factor', thisFile, '\n')
+      load(file.path(dataFolder, trainFolder, thisFile))
+      thisVarName <- trainFileToShortName[[thisFile]]
+      
+      # Process all stations
+      stnDts <- foreach(i=stationIndices) %dopar% {
+        thisStn <- stationInfo[i]
+        return(processSingleStation(thisStn, combine=FALSE))
+      }
+      # Have to combine out here, since can't do it in the parallelized code
+      for (i in 1:length(stnDts)) {
+        thisStn <- stationInfo[stationIndices[i]]$stid
+        trainDts <- mergeStationData(thisStn, stnDts[[i]], trainDts)
+      }
+      rm(tbl)
+      gc()
     }
-    rm(tbl)
+    # At this point, trainDts is a list with length == number of stations
+    # Save each station individually
+    dir.create(file.path(dataFolder, outputFolder))
+    dir.create(file.path(dataFolder, outputFolder, 'inputData/'))
+    for (i in 1:length(trainDts)) {
+      thisStationName <- names(trainDts)[i]
+      cat('Saving training dataset for', thisStationName, '\n')
+      thisTrainDt <- trainDts[[i]]
+      save(thisTrainDt, file=paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
+    }
+    # Each list item is a stations' train dataset
+    rm(trainDts)
     gc()
   }
   
-  # non-flux files
-  for (thisFile in otherFiles) {
-    cat('Loading data for factor', thisFile, '\n')
-    load(file.path(dataFolder, trainFolder, thisFile))
-    thisVarName <- trainFileToShortName[[thisFile]]
-    
-    # Process all stations
-    stnDts <- foreach(i=stationIndices) %dopar% {
-      thisStn <- stationInfo[i]
-      return(processSingleStation(thisStn, combine=FALSE))
+  if (train) {
+    # Train each station
+    cat('Training models\n')
+    foreach(i=1:length(stations)) %dopar% {
+      sink('log.txt', append=TRUE)
+      thisStationName <- stations[i]
+      cat('Training model for station', thisStationName, 'at', Sys.time(), '\n')
+      
+      load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
+      # Annoyingly the date is formatted differently in the test data
+      thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], thisTrainDt, by='date')
+      setnames(thisTrainDt, thisStationName, 'y')
+      
+      # Some post-processing and factor generation
+      # Remove bad training data
+      badData <- which(diff(thisTrainDt$y, 1) == 0) + 1
+      thisTrainDt <- thisTrainDt[!badData]
+      cat('Dropped', length(badData), 'datapoints due to repeated values\n')
+      # Add in days from summer solstice
+      dayOfYear <- abs(yday(as.IDate(as.character(thisTrainDt$date), format="%Y%m%d")) - yday(as.IDate('2013-06-20')))
+      daysFromSolstice <- 183-abs(183-dayOfYear) 
+      thisTrainDt[, daysFromSolstice := daysFromSolstice]
+      # The presence of the date column doens't seem to hurt the RF, but should probably
+      # drop it, since it's not really part of the model
+      thisTrainDt[, date:=NULL]
+      #     fitCtrl <- trainControl(method = "cv",
+      #                             number = 5)
+      #     stnFit <- train(y ~ .,
+#                           data=thisTrainDt,
+      #                     method="rf",
+      #                     trControl=fitCtrl,
+      #                     verbose=TRUE,
+      #                     ntree=500)
+      #     # Finds mtry=113 is optimal
+      # Performance really stops improving at around 400 trees
+      # This is for checking the MSE of the models
+      rf <- randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=400)
+      trainModel <- list(data=thisTrainDt, model=rf)
+      save(trainModel, file=paste0(dataFolder, outputFolder, thisStationName, '.RData'))
+      # Note that parallelized RF doesn't preserve the MSE
+      #     rf <- foreach(i=rep(100, 4), .combine=combine, .multicombine=TRUE) %dopar% {
+      #       randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=i)
+      #     }
+      sink()
+      return(NULL)
     }
-    # Have to combine out here, since can't do it in the parallelized code
-    for (i in 1:length(stnDts)) {
-      thisStn <- stationInfo[stationIndices[i]]$stid
-      trainDts <- mergeStationData(thisStn, stnDts[[i]], trainDts)
-    }
-    rm(tbl)
-    gc()
-  }
-  # At this point, trainDts is a list with length == number of stations
-  dir.create(file.path(dataFolder, outputFolder))
-  save(trainDts, file=paste0(dataFolder, outputFolder, 'trainDts.RData'))
-  # Each list item is a stations' train dataset
-  
-  registerDoMC(cores=2)
-  # Train each station
-  cat('Training models\n')
-  foreach(i=1:length(trainDts)) %dopar% {
-    sink('log.txt', append=TRUE)
-    thisStationName <- names(trainDts)[i]
-    cat('Training model for station', thisStationName, 'at', Sys.time(), '\n')
-    
-    # Annoyingly the date is formatted differently in the test data
-    thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], trainDts[[thisStationName]], by='date')
-    setnames(thisTrainDt, thisStationName, 'y')
-    
-    # Some post-processing and factor generation
-    # Remove bad training data
-    badData <- which(diff(thisTrainDt$y, 1) == 0) + 1
-    thisTrainDt <- thisTrainDt[!badData]
-    cat('Dropped', length(badData), 'datapoints due to repeated values\n')
-    # Add in days from summer solstice
-    dayOfYear <- abs(yday(as.IDate(as.character(thisTrainDt$date), format="%Y%m%d")) - yday(as.IDate('2013-06-20')))
-    daysFromSolstice <- 183-abs(183-dayOfYear) 
-    thisTrainDt[, daysFromSolstice := daysFromSolstice]
-    # The presence of the date column doens't seem to hurt the RF, but should probably
-    # drop it, since it's not really part of the model
-    thisTrainDt[, date:=NULL]
-#     fitCtrl <- trainControl(method = "cv",
-#                             number = 5)
-#     stnFit <- train(y ~ .,
-#                     data=thisTrainDt,
-#                     method="rf",
-#                     trControl=fitCtrl,
-#                     verbose=TRUE,
-#                     ntree=500)
-#     # Finds mtry=113 is optimal
-    # Performance really stops improving at around 400 trees
-    # This is for checking the MSE of the models
-    rf <- randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=400)
-    save(list(data=thisTrainDt, model=rf), file=paste0(dataFolder, outputFolder, thisStationName, '.RData'))
-    # Note that parallelized RF doesn't preserve the MSE
-#     rf <- foreach(i=rep(100, 4), .combine=combine, .multicombine=TRUE) %dopar% {
-#       randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=i)
-#     }
-    sink()
-    return(NULL)
   }
 }
