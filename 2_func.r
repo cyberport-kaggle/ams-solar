@@ -294,14 +294,8 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/') {
     # Note that parallelized RF doesn't preserve the MSE
 #     rf <- foreach(i=rep(100, 4), .combine=combine, .multicombine=TRUE) %dopar% {
 #       randomForest(y~., data=thisTrainDt, mtry=113, do.trace=TRUE, ntree=i)
-#     }
+#     }s
     sink()
     return(NULL)
   }
-<<<<<<< HEAD
-  return(results)
-  
 }
-=======
-}
->>>>>>> da168f69ccc620a4d968ad64e6aafcda81c5dc5a
