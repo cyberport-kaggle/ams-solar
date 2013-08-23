@@ -16,9 +16,6 @@ stationData <- function(factors, train){
   }
 }  
 
-
-
-
 stationFit <- function(stn, trainingPath=paste0(dataFolder, 'cleaned/')) {
     cat('Fitting model for', stn, '\n', sep=' ')
     f <- paste0(trainingPath, stn, '.RData')
@@ -273,7 +270,7 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
       thisStationName <- stations[i]
       cat('Training model for station', thisStationName, 'at', format(Sys.time(), "%a %b %d %X %Y"), '\n')
       
-      load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
+      thisTrainDt = get(load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData')))
       # Annoyingly the date is formatted differently in the test data
       thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], thisTrainDt, by='date')
       setnames(thisTrainDt, thisStationName, 'y')

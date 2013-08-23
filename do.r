@@ -13,7 +13,7 @@ modelsFolder <- 'models/'
 source('1_load.r')
 source('2_func.r')
 
-registerDoMC(cores=4)
+registerDoMC(cores=3)
 
 # Create the datasets
 ####################
