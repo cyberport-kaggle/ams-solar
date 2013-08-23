@@ -122,7 +122,11 @@ predictStation <- function(stn, modelsFolder=modelsFolder) {
     return(res)
 }
 
-selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', preprocess=TRUE, train=TRUE) {
+selectiveRF <- function(stations=stationNames,
+                        outputFolder='selectiveRF/',
+                        preprocess=TRUE,
+                        train=TRUE,
+                        predict=TRUE) {
   # Factor selection:
   # This is a more selective RF model, with only the factors that RF indicated were most important
   # Our cutoff was arbitrary, but we basically took the factors that ended up being in the top 50 most important factors
@@ -180,7 +184,7 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
         setnames(stnTbl, nm, paste(thisVarName, nm, sep='_'))
       }
     }
-    # Add a week of year variable
+    # Annoyingly the date is formatted differently in the test data
     stnTbl[, date:=date/100]
     return(stnTbl)  
   }
@@ -198,21 +202,31 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
   # Execution
   ######
   
-  # files we're interested in:
-  fluxFiles <- trainRData[c(3, 13, 14, 15)]
-  otherFiles <- trainRData[c(7, 12)]
-  trainDts <- list()
-  results <- list()
-  # If a subset of stations are passed in, we have to get the indexes of the stations
-  stationIndices <- which(stationNames %in% stations)
-  
+
   if (preprocess) {
+    # files we're interested in:
+    if (train) {
+      fluxFiles <- trainRData[c(3, 13, 14, 15)]
+      otherFiles <- trainRData[c(7, 12)]
+    } else {
+      fluxFiles <- testRData[c(3, 13, 14, 15)]
+      otherFiles <- testRData[c(7, 12)]
+    }
+    cleanDts <- list()
+    results <- list()
+    # If a subset of stations are passed in, we have to get the indexes of the stations
+    stationIndices <- which(stationNames %in% stations)
     
     # Load a flux file
     for (thisFile in fluxFiles) {
       cat('Loading data for factor', thisFile, '\n')
-      load(file.path(dataFolder, trainFolder, thisFile))
-      thisVarName <- trainFileToShortName[[thisFile]]
+      if (train) {
+        load(file.path(dataFolder, trainFolder, thisFile))
+        thisVarName <- trainFileToShortName[[thisFile]]
+      } else {
+        load(file.path(dataFolder, testFolder, thisFile))
+        thisVarName <- testFileToShortName[[thisFile]]
+      }
       
       # Process all stations
       stnDts <- foreach(i=stationIndices) %dopar% {
@@ -222,7 +236,7 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
       # Have to combine out here, since can't do it in the parallelized code
       for (i in 1:length(stnDts)) {
         thisStn <- stationInfo[stationIndices[i]]$stid
-        trainDts <- mergeStationData(thisStn, stnDts[[i]], trainDts)
+        cleanDts <- mergeStationData(thisStn, stnDts[[i]], cleanDts)
       }
       rm(tbl)
       gc()
@@ -231,8 +245,13 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
     # non-flux files
     for (thisFile in otherFiles) {
       cat('Loading data for factor', thisFile, '\n')
-      load(file.path(dataFolder, trainFolder, thisFile))
-      thisVarName <- trainFileToShortName[[thisFile]]
+      if (train) {
+        load(file.path(dataFolder, trainFolder, thisFile))
+        thisVarName <- trainFileToShortName[[thisFile]]
+      } else {
+        load(file.path(dataFolder, testFolder, thisFile))
+        thisVarName <- testFileToShortName[[thisFile]]
+      }
       
       # Process all stations
       stnDts <- foreach(i=stationIndices) %dopar% {
@@ -242,23 +261,29 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
       # Have to combine out here, since can't do it in the parallelized code
       for (i in 1:length(stnDts)) {
         thisStn <- stationInfo[stationIndices[i]]$stid
-        trainDts <- mergeStationData(thisStn, stnDts[[i]], trainDts)
+        cleanDts <- mergeStationData(thisStn, stnDts[[i]], cleanDts)
       }
       rm(tbl)
       gc()
     }
-    # At this point, trainDts is a list with length == number of stations
+    # At this point, cleanDts is a list with length == number of stations
+    if (train) {
+      subfolder <- 'inputData/'
+    } else {
+      subfolder <- 'inputTestData/'
+    }
     # Save each station individually
     dir.create(file.path(dataFolder, outputFolder))
-    dir.create(file.path(dataFolder, outputFolder, 'inputData/'))
-    for (i in 1:length(trainDts)) {
-      thisStationName <- names(trainDts)[i]
+    dir.create(file.path(dataFolder, outputFolder, subfolder))
+    
+    for (i in 1:length(cleanDts)) {
+      thisStationName <- names(cleanDts)[i]
       cat('Saving training dataset for', thisStationName, '\n')
-      thisTrainDt <- trainDts[[i]]
-      save(thisTrainDt, file=paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
+      thisDt <- cleanDts[[i]]
+      save(thisDt, file=paste0(dataFolder, outputFolder, subfolder, thisStationName, '.RData'))
     }
-    # Each list item is a stations' train dataset
-    rm(trainDts)
+    
+    rm(cleanDts)
     gc()
   }
 
@@ -270,9 +295,14 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
       thisStationName <- stations[i]
       cat('Training model for station', thisStationName, 'at', format(Sys.time(), "%a %b %d %X %Y"), '\n')
       
+<<<<<<< HEAD
       thisTrainDt = get(load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData')))
       # Annoyingly the date is formatted differently in the test data
       thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], thisTrainDt, by='date')
+=======
+      load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
+      thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], thisDt, by='date')
+>>>>>>> 6e061983b306fb576cd681efb8649e2a6728d326
       setnames(thisTrainDt, thisStationName, 'y')
       
       # Some post-processing and factor generation
@@ -308,5 +338,35 @@ selectiveRF <- function(stations=stationNames, outputFolder='selectiveRF/', prep
       sink()
       return(NULL)
     }
+  }
+  
+  if (predict) {
+    cat('Predicting test data\n')
+    # For each station, load in its model and its training data
+    # You must have run the preprocess step while train=FALSE
+    preds <- foreach(i=1:length(stations), .combine=data.table, .multicombine=TRUE) %dopar% {
+      sink('log.txt', append=TRUE)
+      thisStationName <- stations[i]
+      cat('Predicting for station', thisStationName, '\n')
+      # gives trainModel list where $data is the training data and $model is the model
+      load(paste0(dataFolder, outputFolder, thisStationName, '.RData'))
+      # gives thisDt object that is a data.table of the test data
+      load(paste0(dataFolder, outputFolder, 'inputTestData/', thisStationName, '.RData'))
+      
+      # Add in days from summer solstice
+      dayOfYear <- abs(yday(as.IDate(as.character(thisDt$date), format="%Y%m%d")) - yday(as.IDate('2013-06-20')))
+      daysFromSolstice <- 183-abs(183-dayOfYear) 
+      thisDt[, daysFromSolstice := daysFromSolstice]
+      # drop date column
+      thisDt[, date:=NULL]
+      
+      res <- predict(trainModel$model, thisDt)
+      sink()
+      return(res)
+    }
+    setnames(preds, names(preds), stations)
+    preds <- data.table(Date=sampleSub$Date, preds)
+    cat('Saving submission file\n')
+    write.csv(preds, file=paste0(dataFolder, outputFolder, 'submission.csv'), row.names=FALSE)
   }
 }

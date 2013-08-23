@@ -88,6 +88,8 @@ shortNames <- invert(longNames)
 # Since we are not using NC files, we need a map of filename to variable name
 names(shortVarNames) <- trainRData
 trainFileToShortName <- hash(shortVarNames)
+names(shortVarNames) <- testRData
+testFileToShortName <- hash(shortVarNames)
 
 
 if (FALSE) {

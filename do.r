@@ -123,7 +123,10 @@ if (FALSE) {
   res <- selectiveRF(stations)
   
   # run the whole set of stations
-  selectiveRF()
+  # Generate training datasets and train the models
+  selectiveRF(preprocess=TRUE, train=TRUE, predict=FALSE)
+  # Generate testing datasets and make the predictions
+  selectiveRF(preprocess=TRUE, train=FALSE, predict=TRUE)
 }
 
 makeSubmission <- function() {
