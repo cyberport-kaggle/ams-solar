@@ -295,14 +295,9 @@ selectiveRF <- function(stations=stationNames,
       thisStationName <- stations[i]
       cat('Training model for station', thisStationName, 'at', format(Sys.time(), "%a %b %d %X %Y"), '\n')
       
-<<<<<<< HEAD
-      thisTrainDt = get(load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData')))
-      # Annoyingly the date is formatted differently in the test data
-      thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], thisTrainDt, by='date')
-=======
       load(paste0(dataFolder, outputFolder, 'inputData/', thisStationName, '.RData'))
       thisTrainDt <- merge(trainData[,c('date', thisStationName), with=FALSE], thisDt, by='date')
->>>>>>> 6e061983b306fb576cd681efb8649e2a6728d326
+
       setnames(thisTrainDt, thisStationName, 'y')
       
       # Some post-processing and factor generation
